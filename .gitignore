@@ -1,0 +1,43 @@
+# Python files
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Environment files
+.env
+.venv/
+venv/
+ENV/
+
+# macOS specific files
+.DS_Store
+
+# Logs
+*.log
+*.out
+*.err
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+
+# Compiled files
+*.o
+*.so
+*.a
+*.mod
+
+# Editor specific files
+.vscode/
+.idea/
+*.iml
+
+# Other
+heat_solver.edp.bak
