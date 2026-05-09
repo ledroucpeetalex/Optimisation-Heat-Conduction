@@ -41,3 +41,5 @@ ENV/
 
 # Other
 heat_solver.edp.bak
+objective.txt
+params.txt
