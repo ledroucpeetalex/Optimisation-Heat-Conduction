@@ -43,3 +43,7 @@ ENV/
 heat_solver.edp.bak
 objective.txt
 params.txt
+
+*.png
+*.txt
+*.csv

@@ -4,7 +4,10 @@
 
 // ---------- PARAMETERS ----------
 
-real ws = 0.10;
+// spine width
+real ws = 0.10; 
+
+// fins thickness
 real tf = 0.06;
 
 real xg = (1.0-ws)/2.0;
@@ -41,6 +44,9 @@ func int inSpine(real xx, real yy)
 {
     return (xx >= xg && xx <= xd);
 }
+
+
+// Ici on considère que les fins ne passent pas dans la spine.
 
 func int inFin(real xx, real yy, real yc)
 {
@@ -167,10 +173,48 @@ cout << "Objective J = " << J << endl;
 
 // ---------- OPTIONAL PLOT ----------
 
-plot(
-    T,
-    fill=true,
-    value=true,
-    wait=false,
-    cmm="Temperature"
-);
+
+ifstream bestparams("params_final.txt");
+
+real[int] bestp(6);
+for (int i = 0; i < 6; i++) {
+    bestparams >> bestp[i];
+}
+
+// Recalculer la solution avec les meilleures valeurs
+real k1b = bestp[0];
+real k2b = bestp[1];
+real k3b = bestp[2];
+real k4b = bestp[3];
+real k5b = bestp[4];
+real Bib = bestp[5];
+
+// Mettre à jour les paramètres dans le solveur
+kappa =
+    inSpine(x,y) ? 1.0 :
+
+    (
+        inFin(x,y,fy1) ? k1 :
+
+        (
+            inFin(x,y,fy2) ? k2 :
+
+            (
+                inFin(x,y,fy3) ? k3 :
+
+                (
+                    inFin(x,y,fy4) ? k4 :
+
+                    (
+                        inFin(x,y,fy5) ? k5 : 1.0
+                    )
+                )
+            )
+        )
+    );
+
+// Résoudre à nouveau avec les meilleures valeurs
+heat;
+
+// Plot uniquement pour la meilleure solution
+plot(T, fill = true, value = true, wait = false);
