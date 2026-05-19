@@ -1,0 +1,226 @@
+// =====================================================
+// heat_solver.edp
+// =====================================================
+
+// INCLUDE
+
+include "getARGV.idp"
+
+// ---------- PARAMETERS ----------
+
+// spine width
+real ws = 0.10; 
+
+// fins thickness
+real tf = 0.06;
+
+real xg = (1.0-ws)/2.0;
+real xd = xg + ws;
+
+// fin positions
+real fy1 = 0.16;
+real fy2 = 0.32;
+real fy3 = 0.48;
+real fy4 = 0.64;
+real fy5 = 0.80;
+
+// ---------- READ PARAMETERS ----------
+
+real[int] p(6);
+
+{
+    ifstream file("params.txt");
+
+    for(int i=0;i<6;i++)
+        file >> p[i];
+}
+
+real k1 = p[0];
+real k2 = p[1];
+real k3 = p[2];
+real k4 = p[3];
+real k5 = p[4];
+real Bi = p[5];
+
+// ---------- GEOMETRY ----------
+
+func int inSpine(real xx, real yy)
+{
+    return (xx >= xg && xx <= xd);
+}
+
+func int inFin(real xx, real yy, real yc)
+{
+    return (
+        abs(yy-yc) <= tf/2.0
+        &&
+        (xx <= xg || xx >= xd)
+    );
+}
+
+func int material(real xx, real yy)
+{
+    return (
+        inSpine(xx,yy)
+        ||
+        inFin(xx,yy,fy1)
+        ||
+        inFin(xx,yy,fy2)
+        ||
+        inFin(xx,yy,fy3)
+        ||
+        inFin(xx,yy,fy4)
+        ||
+        inFin(xx,yy,fy5)
+    );
+}
+
+// ---------- INITIAL MESH ----------
+
+mesh Th0 = square(50,50);
+
+// ---------- DOMAIN EXTRACTION ----------
+
+fespace V0(Th0,P1);
+
+V0 ind = material(x,y);
+
+mesh Th = trunc(Th0, ind > 0.5);
+
+// ---------- FE SPACE ----------
+
+fespace Vh(Th,P1);
+
+Vh T,v;
+
+// ---------- THERMAL CONDUCTIVITY ----------
+
+Vh kappa;
+
+kappa =
+    inSpine(x,y) ? 1.0 :
+
+    (
+        inFin(x,y,fy1) ? k1 :
+
+        (
+            inFin(x,y,fy2) ? k2 :
+
+            (
+                inFin(x,y,fy3) ? k3 :
+
+                (
+                    inFin(x,y,fy4) ? k4 :
+
+                    (
+                        inFin(x,y,fy5) ? k5 : 1.0
+                    )
+                )
+            )
+        )
+    );
+
+// ---------- PDE ----------
+
+// IMPORTANT:
+// square() labels are:
+//
+// bottom = 1
+// right  = 2
+// top    = 3
+// left   = 4
+
+problem heat(T,v) =
+
+    int2d(Th)(
+        kappa * (
+            dx(T)*dx(v)
+            +
+            dy(T)*dy(v)
+        )
+    )
+
+    + int1d(Th,2,3,4)(
+        Bi * T * v
+    )
+
+    + on(1,T=1);
+
+// solve
+heat;
+
+// ---------- OBJECTIVE ----------
+
+// fin boundary approximation:
+// all non-base boundaries
+
+real L =
+    int1d(Th,2,3,4)(1.0);
+
+real J =
+    int1d(Th,2,3,4)(T)
+    /
+    L;
+
+// ---------- OUTPUT ----------
+
+{
+    ofstream fout("objective.txt");
+
+    fout << J << endl;
+}
+
+cout << "Objective J = " << J << endl;
+
+// ---------- OPTIONAL PLOT ----------
+
+// Get the '-doplot' argument from Python (defaults to 0 if not provided)
+int doPlot = getARGV("-doplot", 0);
+
+if (doPlot == 1) {
+
+    ifstream bestparams("params_final.txt");
+
+    real[int] bestp(6);
+    for (int i = 0; i < 6; i++) {
+        bestparams >> bestp[i];
+    }
+
+    // Recalculer la solution avec les meilleures valeurs
+    real k1b = bestp[0];
+    real k2b = bestp[1];
+    real k3b = bestp[2];
+    real k4b = bestp[3];
+    real k5b = bestp[4];
+    real Bib = bestp[5];
+
+    // Mettre à jour les paramètres dans le solveur
+    kappa =
+        inSpine(x,y) ? 1.0 :
+
+        (
+            inFin(x,y,fy1) ? k1 :
+
+            (
+                inFin(x,y,fy2) ? k2 :
+
+                (
+                    inFin(x,y,fy3) ? k3 :
+
+                    (
+                        inFin(x,y,fy4) ? k4 :
+
+                        (
+                            inFin(x,y,fy5) ? k5 : 1.0
+                        )
+                    )
+                )
+            )
+        );
+
+    // Résoudre à nouveau avec les meilleures valeurs
+    heat;
+
+    // Plot uniquement pour la meilleure solution
+    plot(T, fill = true, value = true, wait = false);
+}
