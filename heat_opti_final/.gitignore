@@ -1,0 +1,7 @@
+.env
+results/
+__pycache__/
+*.pyc
+params.txt
+objective.txt
+best_params.txt

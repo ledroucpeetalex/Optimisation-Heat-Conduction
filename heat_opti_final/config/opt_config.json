@@ -1,0 +1,8 @@
+{
+    "bounds": [[0.1, 1.0], [0.1, 1.0], [0.1, 1.0], [0.1, 1.0], [0.1, 1.0], [0.01, 1.0]],
+    "optimization": {
+      "differential_evolution": {"maxiter": 5, "popsize": 4},
+      "nelder_mead": {"maxiter": 50},
+      "basinhopping": {"niter": 30}
+    }
+  }
