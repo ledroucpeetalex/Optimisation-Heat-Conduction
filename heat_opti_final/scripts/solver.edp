@@ -1,0 +1,90 @@
+// =====================================================
+// solver.edp
+// Résout le problème de conduction stationnaire HEAT-COND
+// sur un maillage précalculé. Les paramètres sont passés
+// via la ligne de commande (getARGV).
+//
+// Arguments :
+//   -meshfile <string>  chemin du .msh (généré par mesh.edp)
+//   -k1 ... -k5 <real>  conductivités par ailette (défaut 0.5)
+//   -Bi <real>          nombre de Biot (défaut 0.5)
+//   -doplot <int>       1 = affiche T à la fin
+//   -Tout <string>      si non vide, écrit x y T par sommet
+//
+// Sortie standard :
+//   "Objective_J=<valeur>" sur une ligne (parsée par Python)
+// =====================================================
+
+include "getARGV.idp"
+
+string meshfile = getARGV("-meshfile", "cache/mesh.msh");
+real k1 = getARGV("-k1", 0.5);
+real k2 = getARGV("-k2", 0.5);
+real k3 = getARGV("-k3", 0.5);
+real k4 = getARGV("-k4", 0.5);
+real k5 = getARGV("-k5", 0.5);
+real Bi = getARGV("-Bi", 0.5);
+int  doPlot = getARGV("-doplot", 0);
+string Tout = getARGV("-Tout", "");
+
+// ---------- GEOMETRY CONSTANTS (pour kappa) ----------
+real ws  = 0.10;
+real tf  = 0.06;
+real xg  = (1.0 - ws) / 2.0;
+real xd  = xg + ws;
+real fy1 = 0.16, fy2 = 0.32, fy3 = 0.48, fy4 = 0.64, fy5 = 0.80;
+
+func int inSpine(real xx, real yy) {
+    return (xx >= xg && xx <= xd);
+}
+
+func int inFin(real xx, real yy, real yc) {
+    return (abs(yy - yc) <= tf / 2.0 && (xx <= xg || xx >= xd));
+}
+
+// ---------- LOAD MESH ----------
+mesh Th = readmesh(meshfile);
+fespace Vh(Th, P1);
+Vh T, v;
+
+// ---------- THERMAL CONDUCTIVITY ----------
+Vh kappa = inSpine(x, y) ? 1.0 : (
+           inFin(x, y, fy1) ? k1 : (
+           inFin(x, y, fy2) ? k2 : (
+           inFin(x, y, fy3) ? k3 : (
+           inFin(x, y, fy4) ? k4 : (
+           inFin(x, y, fy5) ? k5 : 1.0 )))));
+
+// ---------- PDE ----------
+// Boundary labels (square): bottom=1, right=2, top=3, left=4
+// Base = bottom (Dirichlet T=1), Fin = right+top+left (Robin)
+problem heat(T, v) =
+      int2d(Th)( kappa * (dx(T)*dx(v) + dy(T)*dy(v)) )
+    + int1d(Th, 2, 3, 4)( Bi * T * v )
+    + on(1, T = 1);
+
+heat;
+
+// ---------- OBJECTIVE ----------
+real L = int1d(Th, 2, 3, 4)(1.0);
+real J = int1d(Th, 2, 3, 4)(T) / L;
+
+cout << "Objective_J=" << J << endl;
+
+// ---------- OPTIONAL T FIELD EXPORT ----------
+if (Tout != "") {
+    Vh xc = x;
+    Vh yc = y;
+    ofstream fout(Tout);
+    fout << "# x y T" << endl;
+    for (int i = 0; i < Th.nv; i++) {
+        fout << xc[][i] << " " << yc[][i] << " " << T[][i] << endl;
+    }
+    cout << "T_FIELD_SAVED=" << Tout << endl;
+}
+
+// ---------- OPTIONAL PLOT ----------
+if (doPlot == 1) {
+    plot(T, fill = true, value = true, wait = true,
+         cmm = "T field");
+}

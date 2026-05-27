@@ -1,71 +1,107 @@
+"""Programme principal en ligne de commande.
+
+- Évalue le design initial.
+- Lance les 3 méthodes (DE, Nelder-Mead, Basinhopping).
+- Génère convergence par méthode + convergence comparée.
+- Génère les champs T initial vs optimisé.
+"""
+
 import json
+from pathlib import Path
+
 import pandas as pd
+
+from src.freefem_interface import ensure_mesh, run_solver
 from src.optimization import (
-    run_differential_evolution, run_nelder_mead, run_basinhopping
+    run_basinhopping,
+    run_differential_evolution,
+    run_nelder_mead,
 )
-from src.visualization import plot_convergence
-from src.utils import save_history, load_best_design
-from src.freefem_interface import write_params, run_freefem, read_objective
+from src.utils import RESULTS_DIR, load_best_design, save_history
+from src.visualization import (
+    plot_convergence,
+    plot_convergence_comparison,
+    plot_temperature_comparison,
+)
 
-def evaluate_initial_design(mesh_size=50):
-    x0 = [0.5, 0.5, 0.5, 0.5, 0.5, 0.5]
-    write_params(x0)
-    run_freefem(doplot=0, mesh_size=mesh_size) 
-    J0 = read_objective()
-    print("\n" + "="*50)
+PROJECT_ROOT = Path(__file__).resolve().parent
+CONFIG_PATH = PROJECT_ROOT / "config" / "opt_config.json"
+
+
+def evaluate_initial_design(mesh_size: int = 50, t_out: Path | None = None) -> float:
+    x0 = [0.5] * 5 + [0.5]
+    J0 = run_solver(x0, mesh_size=mesh_size, doplot=0, t_out=t_out)
+    print("\n" + "=" * 50)
     print("CONCEPTION INITIALE")
-    print(f"J initial = {J0:.8f}")
-    print("="*50 + "\n")
+    print(f"J initial (x = [0.5,...,0.5]) = {J0:.8f}")
+    print("=" * 50 + "\n")
+    return J0
 
-def plot_final_best():
-    best_x = load_best_design()
-    if best_x is None:
-        print("Aucun meilleur design trouvé. L'optimisation n'a peut-être pas été lancée.")
-        return
-    print("\n--- Génération de la figure du meilleur design ---")
-    write_params(best_x)
-    run_freefem("-doplot", "1")
-    print("Figure affichée. Fermez la fenêtre pour continuer.")
 
-def main():
-    with open("config/opt_config.json", "r") as f:
+def main() -> None:
+    with open(CONFIG_PATH, "r") as f:
         config = json.load(f)
     bounds = config["bounds"]
-    
-    evaluate_initial_design()
-    
+    opt_cfg = config["optimization"]
+    mesh_size = opt_cfg["differential_evolution"]["mesh_size"]
+
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    ensure_mesh(mesh_size)  # cache à l'avance
+
+    # 1. Design initial + champ T initial sauvegardé
+    T_init_file = RESULTS_DIR / "T_initial.dat"
+    evaluate_initial_design(mesh_size=mesh_size, t_out=T_init_file)
+
+    # 2. Optimisation par 3 méthodes
     methods = [
-        ("Differential Evolution", run_differential_evolution, config["optimization"]["differential_evolution"]),
-        ("Nelder-Mead", run_nelder_mead, config["optimization"]["nelder_mead"]),
-        ("Basinhopping", run_basinhopping, config["optimization"]["basinhopping"])
+        ("Differential Evolution", run_differential_evolution, opt_cfg["differential_evolution"]),
+        ("Nelder-Mead",            run_nelder_mead,            opt_cfg["nelder_mead"]),
+        ("Basinhopping",           run_basinhopping,           opt_cfg["basinhopping"]),
     ]
-    
+
     all_results = []
+    histories: dict[str, list] = {}
     for name, func, kwargs in methods:
         print(f"\n--- Lancement de {name} ---\n")
         try:
             res = func(bounds, **kwargs)
             all_results.append(res)
-            print(f"  Terminé en {res['time']:.2f} s, meilleur J = {res['best_J']:.8f}, évaluations = {res['n_eval']}")
+            histories[name] = res["history"]
+            # Convergence individuelle
+            plot_convergence(res["history"], filename=f"convergence_{name.replace(' ', '_')}.png")
+            print(f"  Fini en {res['time']:.1f}s | J* = {res['best_J']:.8f} | n_eval = {res['n_eval']}")
         except Exception as e:
             print(f"  Erreur : {e}")
-    
-    if all_results:
-        df_summary = pd.DataFrame(all_results)
-        df_summary = df_summary[['method', 'best_J', 'n_eval', 'time', 'success']]
-        df_summary.columns = ['Méthode', 'Meilleur J', 'Nb évaluations', 'Temps (s)', 'Convergence']
-        df_summary = df_summary.sort_values('Meilleur J', ascending=False)
-        print("\n" + "="*70)
-        print("TABLEAU DE SYNTHÈSE DES MÉTHODES")
-        print("="*70)
-        print(df_summary.to_string(index=False))
-        df_summary.to_csv("results/method_comparison.csv", index=False)
-        
-        from src.optimization import history
-        save_history(history)
-        plot_convergence(history)
-        
-        plot_final_best()
+
+    if not all_results:
+        return
+
+    # 3. Tableau de synthèse
+    df = pd.DataFrame([{k: v for k, v in r.items() if k != "history"} for r in all_results])
+    df = df[["method", "best_J", "n_eval", "time", "success"]]
+    df.columns = ["Méthode", "Meilleur J", "Nb évaluations", "Temps (s)", "Convergence"]
+    df = df.sort_values("Meilleur J", ascending=False)
+    print("\n" + "=" * 70)
+    print("TABLEAU DE SYNTHÈSE DES MÉTHODES")
+    print("=" * 70)
+    print(df.to_string(index=False))
+    df.to_csv(RESULTS_DIR / "method_comparison.csv", index=False)
+
+    # 4. Convergence comparée + historique combiné
+    plot_convergence_comparison(histories)
+    # Historique du best run (celui avec J max)
+    best_run = max(all_results, key=lambda r: r["best_J"])
+    save_history(best_run["history"])
+
+    # 5. Champ T optimisé + comparaison avec champ initial
+    best_x = load_best_design()
+    if best_x is not None:
+        T_opt_file = RESULTS_DIR / "T_optimized.dat"
+        J_opt = run_solver(best_x, mesh_size=mesh_size, doplot=0, t_out=T_opt_file)
+        print(f"\nJ optimisé (recalculé) = {J_opt:.8f}")
+        plot_temperature_comparison(T_init_file, T_opt_file)
+        print("Comparaison T initial / T optimisé sauvegardée dans results/T_comparison.png")
+
 
 if __name__ == "__main__":
     main()

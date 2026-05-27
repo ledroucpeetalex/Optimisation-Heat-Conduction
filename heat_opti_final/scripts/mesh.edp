@@ -1,0 +1,51 @@
+// =====================================================
+// mesh.edp
+// Génère le maillage de la géométrie HEAT-COND et le
+// sauvegarde dans un fichier .msh. À exécuter UNE FOIS
+// par taille de maillage (mise en cache côté Python).
+//
+// Arguments (getARGV) :
+//   -meshsize <int>     taille du maillage de base (défaut 50)
+//   -out <string>       chemin du fichier .msh à écrire
+// =====================================================
+
+include "getARGV.idp"
+
+int meshsize  = getARGV("-meshsize", 50);
+string outfile = getARGV("-out", "cache/mesh.msh");
+
+// ---------- GEOMETRY CONSTANTS ----------
+real ws  = 0.10;                 // spine width
+real tf  = 0.06;                 // fins thickness
+real xg  = (1.0 - ws) / 2.0;
+real xd  = xg + ws;
+real fy1 = 0.16, fy2 = 0.32, fy3 = 0.48, fy4 = 0.64, fy5 = 0.80;
+
+func int inSpine(real xx, real yy) {
+    return (xx >= xg && xx <= xd);
+}
+
+func int inFin(real xx, real yy, real yc) {
+    return (abs(yy - yc) <= tf / 2.0 && (xx <= xg || xx >= xd));
+}
+
+func int material(real xx, real yy) {
+    return (inSpine(xx, yy)
+        || inFin(xx, yy, fy1)
+        || inFin(xx, yy, fy2)
+        || inFin(xx, yy, fy3)
+        || inFin(xx, yy, fy4)
+        || inFin(xx, yy, fy5));
+}
+
+// ---------- MESH GENERATION ----------
+mesh Th0 = square(meshsize, meshsize);
+fespace V0(Th0, P1);
+V0 ind = material(x, y);
+mesh Th = trunc(Th0, ind > 0.5);
+
+savemesh(Th, outfile);
+
+cout << "MESH_SAVED=" << outfile << endl;
+cout << "MESH_NV=" << Th.nv << endl;
+cout << "MESH_NT=" << Th.nt << endl;
