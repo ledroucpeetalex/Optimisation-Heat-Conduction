@@ -99,7 +99,8 @@ def main() -> None:
         T_opt_file = RESULTS_DIR / "T_optimized.dat"
         J_opt = run_solver(best_x, mesh_size=mesh_size, doplot=0, t_out=T_opt_file)
         print(f"\nJ optimisé (recalculé) = {J_opt:.8f}")
-        plot_temperature_comparison(T_init_file, T_opt_file)
+        mesh_path = ensure_mesh(mesh_size)
+        plot_temperature_comparison(T_init_file, T_opt_file, mesh_path=mesh_path)
         print("Comparaison T initial / T optimisé sauvegardée dans results/T_comparison.png")
 
 

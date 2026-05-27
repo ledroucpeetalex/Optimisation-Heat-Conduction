@@ -1,17 +1,23 @@
 """Visualisation : convergence, champs T, sweep, maillage.
 
-Toutes les fonctions ont une variante "draw_*" qui peuple un Axes existant
-(utile pour intégrer dans Tkinter via FigureCanvasTkAgg) et une variante
-"plot_*" qui sauvegarde un PNG dans results/.
+Conventions :
+
+- `draw_*` peuple un Axes existant (utilisable côté Tkinter via
+  FigureCanvasTkAgg, ou côté notebook via pyplot).
+- `plot_*` sauvegarde un PNG dans `results/` SANS toucher pyplot
+  (utilise Figure + FigureCanvasAgg) — donc thread-safe : ces fonctions
+  peuvent être appelées depuis le worker thread de l'app sans crasher
+  TkAgg côté main thread.
 """
 
 from pathlib import Path
 from typing import Dict, Optional, Sequence
 
-import matplotlib.pyplot as plt
 import matplotlib.tri as mtri
 import numpy as np
 import pandas as pd
+from matplotlib.backends.backend_agg import FigureCanvasAgg
+from matplotlib.figure import Figure
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 RESULTS_DIR = PROJECT_ROOT / "results"
@@ -19,6 +25,13 @@ RESULTS_DIR = PROJECT_ROOT / "results"
 
 def _ensure_results_dir() -> None:
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _save(fig: Figure, path: Path, dpi: int = 200,
+          bbox_inches: str = "tight") -> None:
+    """Sauvegarde une Figure via le backend Agg (pas de pyplot)."""
+    canvas = FigureCanvasAgg(fig)
+    canvas.print_figure(path, dpi=dpi, bbox_inches=bbox_inches)
 
 
 # ===========================================================================
@@ -46,17 +59,14 @@ def draw_convergence(ax, history) -> None:
     ax.grid(True, alpha=0.4)
 
 
-def plot_convergence(history, filename: str = "convergence.png",
-                     show: bool = False) -> Path:
+def plot_convergence(history, filename: str = "convergence.png") -> Path:
     _ensure_results_dir()
-    fig, ax = plt.subplots(figsize=(10, 6))
+    fig = Figure(figsize=(10, 6))
+    ax = fig.add_subplot(111)
     draw_convergence(ax, history)
+    fig.tight_layout()
     path = RESULTS_DIR / filename
-    plt.tight_layout()
-    plt.savefig(path, dpi=200)
-    if show:
-        plt.show()
-    plt.close(fig)
+    _save(fig, path)
     return path
 
 
@@ -76,17 +86,14 @@ def draw_convergence_comparison(ax, results_per_method: Dict[str, list]) -> None
 def plot_convergence_comparison(
     results_per_method: Dict[str, list],
     filename: str = "convergence_comparison.png",
-    show: bool = False,
 ) -> Path:
     _ensure_results_dir()
-    fig, ax = plt.subplots(figsize=(10, 6))
+    fig = Figure(figsize=(10, 6))
+    ax = fig.add_subplot(111)
     draw_convergence_comparison(ax, results_per_method)
-    plt.tight_layout()
+    fig.tight_layout()
     path = RESULTS_DIR / filename
-    plt.savefig(path, dpi=200)
-    if show:
-        plt.show()
-    plt.close(fig)
+    _save(fig, path)
     return path
 
 
@@ -107,19 +114,22 @@ def draw_mesh(ax, vertices: np.ndarray, triangles: np.ndarray,
     ax.set_title(f"Maillage — {len(vertices)} sommets, {len(triangles)} triangles")
 
     if edges is not None and show_labels:
-        # Couleur par label de bord
-        unique_labels = np.unique(edges[:, 2])
-        cmap = plt.get_cmap("tab10")
-        # Légende : bottom=1 (Base), right=2/top=3/left=4 (Fin)
-        names = {1: "Base (T=1)", 2: "Fin droite", 3: "Fin haut", 4: "Fin gauche"}
-        for k, lbl in enumerate(unique_labels):
+        # Convention (cf. mesh.edp) :
+        #   1 = base   (Dirichlet T = 1)
+        #   2 = TOUT le reste (Robin Bi*T + k*dT/dn = 0)
+        names = {
+            1: "Base (T = 1, Dirichlet)",
+            2: "Surface fin (Robin)",
+        }
+        colors = {1: "#c0392b", 2: "#2980b9"}
+        for lbl in np.unique(edges[:, 2]):
             mask = edges[:, 2] == lbl
-            color = cmap(k % 10)
+            color = colors.get(int(lbl), "#7f8c8d")
             for v1, v2, _ in edges[mask]:
                 ax.plot([vertices[v1, 0], vertices[v2, 0]],
                         [vertices[v1, 1], vertices[v2, 1]],
-                        "-", color=color, lw=1.6)
-            ax.plot([], [], "-", color=color, lw=2,
+                        "-", color=color, lw=1.8)
+            ax.plot([], [], "-", color=color, lw=2.5,
                     label=names.get(int(lbl), f"label {int(lbl)}"))
         ax.legend(loc="upper right", fontsize=8, framealpha=0.9)
 
@@ -133,11 +143,21 @@ def draw_temperature(ax, x: np.ndarray, y: np.ndarray, T: np.ndarray,
                      vmin: Optional[float] = None,
                      vmax: Optional[float] = None,
                      cmap: str = "inferno"):
+    """Trace tricontourf de T.
+
+    Si `triangles` est fourni (typiquement issu de read_freefem_mesh), la
+    triangulation native est utilisée — les vides entre ailettes restent
+    vides. Sinon, fallback sur Delaunay sur (x, y) qui remplit l'enveloppe
+    convexe (à éviter pour cette géométrie non convexe).
+    """
     if triangles is not None:
         tri = mtri.Triangulation(x, y, triangles[:, :3])
     else:
         tri = mtri.Triangulation(x, y)
-    levels = np.linspace(vmin, vmax, 25) if (vmin is not None and vmax is not None) else 25
+    if vmin is not None and vmax is not None:
+        levels = np.linspace(vmin, vmax, 25)
+    else:
+        levels = 25
     tcf = ax.tricontourf(tri, T, levels=levels, cmap=cmap)
     ax.set_aspect("equal")
     ax.set_xlim(-0.02, 1.02)
@@ -151,29 +171,45 @@ def draw_temperature(ax, x: np.ndarray, y: np.ndarray, T: np.ndarray,
 def plot_temperature_comparison(
     initial_T_file: Path,
     optimized_T_file: Path,
+    mesh_path: Optional[Path] = None,
     initial_label: str = "Design initial",
     optimized_label: str = "Design optimisé",
     filename: str = "T_comparison.png",
-    show: bool = False,
 ) -> Path:
+    """Sauvegarde la comparaison T initial / T optimisé.
+
+    `mesh_path` doit pointer vers le .msh utilisé pour générer les .dat
+    (sinon on retombe sur Delaunay -> enveloppe convexe).
+    """
     _ensure_results_dir()
-    from .freefem_interface import read_temperature_field
+    from .freefem_interface import read_freefem_mesh, read_temperature_field
 
     x0, y0, T0 = read_temperature_field(initial_T_file)
     x1, y1, T1 = read_temperature_field(optimized_T_file)
     vmin = min(T0.min(), T1.min())
     vmax = max(T0.max(), T1.max())
 
-    fig, axes = plt.subplots(1, 2, figsize=(13, 6))
-    draw_temperature(axes[0], x0, y0, T0, title=initial_label, vmin=vmin, vmax=vmax)
-    tcf = draw_temperature(axes[1], x1, y1, T1, title=optimized_label, vmin=vmin, vmax=vmax)
-    fig.colorbar(tcf, ax=axes, fraction=0.04, pad=0.04, label="T")
+    tri = None
+    if mesh_path is not None:
+        try:
+            _, triangles, _ = read_freefem_mesh(mesh_path)
+            if (len(triangles) and triangles[:, :3].max() < len(x0)
+                    and triangles[:, :3].max() < len(x1)):
+                tri = triangles
+        except Exception:
+            tri = None
+
+    fig = Figure(figsize=(13, 6))
+    ax1 = fig.add_subplot(121)
+    draw_temperature(ax1, x0, y0, T0, triangles=tri,
+                     title=initial_label, vmin=vmin, vmax=vmax)
+    ax2 = fig.add_subplot(122)
+    tcf = draw_temperature(ax2, x1, y1, T1, triangles=tri,
+                           title=optimized_label, vmin=vmin, vmax=vmax)
+    fig.colorbar(tcf, ax=[ax1, ax2], fraction=0.04, pad=0.04, label="T")
     fig.suptitle("Champs de température : initial vs optimisé")
     path = RESULTS_DIR / filename
-    plt.savefig(path, dpi=200, bbox_inches="tight")
-    if show:
-        plt.show()
-    plt.close(fig)
+    _save(fig, path)
     return path
 
 
@@ -183,29 +219,23 @@ def plot_temperature_comparison(
 def plot_parameter_sweep(
     sweep_results: Dict[str, Dict[str, list]],
     filename: str = "parameter_sweep.png",
-    show: bool = False,
 ) -> Path:
     _ensure_results_dir()
     names = list(sweep_results.keys())
     n = len(names)
     cols = min(3, n)
     rows = (n + cols - 1) // cols
-    fig, axes = plt.subplots(rows, cols, figsize=(5 * cols, 4 * rows), squeeze=False)
+    fig = Figure(figsize=(5 * cols, 4 * rows))
     for i, name in enumerate(names):
-        ax = axes[i // cols][i % cols]
+        ax = fig.add_subplot(rows, cols, i + 1)
         d = sweep_results[name]
         ax.plot(d["values"], d["J"], "o-", lw=2)
         ax.set_xlabel(name)
         ax.set_ylabel("J")
         ax.set_title(f"Sensibilité de J à {name}")
         ax.grid(True, alpha=0.4)
-    for j in range(n, rows * cols):
-        axes[j // cols][j % cols].axis("off")
     fig.suptitle("Sensibilité paramètre par paramètre (one-at-a-time)")
-    plt.tight_layout()
+    fig.tight_layout()
     path = RESULTS_DIR / filename
-    plt.savefig(path, dpi=200)
-    if show:
-        plt.show()
-    plt.close(fig)
+    _save(fig, path)
     return path

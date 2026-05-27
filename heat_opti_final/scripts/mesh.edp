@@ -1,12 +1,16 @@
 // =====================================================
 // mesh.edp
-// Génère le maillage de la géométrie HEAT-COND et le
-// sauvegarde dans un fichier .msh. À exécuter UNE FOIS
-// par taille de maillage (mise en cache côté Python).
+// Génère le maillage de la géométrie HEAT-COND avec
+// buildmesh() : frontières exactes (alignées sur la
+// géométrie), triangulation Delaunay à l'intérieur.
 //
-// Arguments (getARGV) :
-//   -meshsize <int>     taille du maillage de base (défaut 50)
-//   -out <string>       chemin du fichier .msh à écrire
+// Arguments :
+//   -meshsize <int>   densité de maillage (nb pts / unité de longueur)
+//   -out <string>     chemin du .msh à écrire
+//
+// Labels :
+//   1  = base (y=0 sur le spine)                 -> Dirichlet T=1
+//   2  = TOUTES les autres frontières             -> Robin
 // =====================================================
 
 include "getARGV.idp"
@@ -15,37 +19,78 @@ int meshsize  = getARGV("-meshsize", 50);
 string outfile = getARGV("-out", "cache/mesh.msh");
 
 // ---------- GEOMETRY CONSTANTS ----------
-real ws  = 0.10;                 // spine width
-real tf  = 0.06;                 // fins thickness
-real xg  = (1.0 - ws) / 2.0;
-real xd  = xg + ws;
-real fy1 = 0.16, fy2 = 0.32, fy3 = 0.48, fy4 = 0.64, fy5 = 0.80;
+real ws  = 0.10;                // spine width
+real tf  = 0.06;                // fin thickness
+real xg  = (1.0 - ws) / 2.0;    // 0.45
+real xd  = xg + ws;             // 0.55
+real[int] fy = [0.16, 0.32, 0.48, 0.64, 0.80];
 
-func int inSpine(real xx, real yy) {
-    return (xx >= xg && xx <= xd);
+// ---------- BUILD CCW BOUNDARY POINT LIST ----------
+// 44 segments, 45 points (le dernier point boucle sur le 1er).
+int Npts = 45;
+real[int] bx(Npts), by(Npts);
+int[int]  lbl(Npts - 1);
+
+// Point de départ
+bx[0] = xg;   by[0] = 0;
+int k = 1;
+
+// 1) Base (y=0) : -> (xd, 0)   [LABEL 1]
+bx[k] = xd;   by[k] = 0;            lbl[k-1] = 1;  k++;
+
+// 2) Côté droit, ailettes 0..4
+for (int i = 0; i < 5; i++) {
+    // Montée du spine jusqu'au bas de l'ailette
+    bx[k] = xd;  by[k] = fy[i] - tf/2;  lbl[k-1] = 2;  k++;
+    // Dessous de l'ailette droite vers le bord extérieur
+    bx[k] = 1.0; by[k] = fy[i] - tf/2;  lbl[k-1] = 2;  k++;
+    // Pointe extérieure de l'ailette droite (x = 1)
+    bx[k] = 1.0; by[k] = fy[i] + tf/2;  lbl[k-1] = 2;  k++;
+    // Dessus de l'ailette droite retour vers le spine
+    bx[k] = xd;  by[k] = fy[i] + tf/2;  lbl[k-1] = 2;  k++;
 }
 
-func int inFin(real xx, real yy, real yc) {
-    return (abs(yy - yc) <= tf / 2.0 && (xx <= xg || xx >= xd));
+// 3) Montée du spine après l'ailette 4 -> (xd, 1)
+bx[k] = xd;  by[k] = 1.0;           lbl[k-1] = 2;  k++;
+
+// 4) Sommet du spine -> (xg, 1)
+bx[k] = xg;  by[k] = 1.0;           lbl[k-1] = 2;  k++;
+
+// 5) Côté gauche, ailettes 4..0 (descente)
+for (int i = 4; i >= 0; i--) {
+    // Descente le long du spine jusqu'au haut de l'ailette
+    bx[k] = xg;   by[k] = fy[i] + tf/2; lbl[k-1] = 2;  k++;
+    // Dessus de l'ailette gauche vers le bord extérieur
+    bx[k] = 0.0;  by[k] = fy[i] + tf/2; lbl[k-1] = 2;  k++;
+    // Pointe extérieure de l'ailette gauche (x = 0)
+    bx[k] = 0.0;  by[k] = fy[i] - tf/2; lbl[k-1] = 2;  k++;
+    // Dessous de l'ailette gauche retour vers le spine
+    bx[k] = xg;   by[k] = fy[i] - tf/2; lbl[k-1] = 2;  k++;
 }
 
-func int material(real xx, real yy) {
-    return (inSpine(xx, yy)
-        || inFin(xx, yy, fy1)
-        || inFin(xx, yy, fy2)
-        || inFin(xx, yy, fy3)
-        || inFin(xx, yy, fy4)
-        || inFin(xx, yy, fy5));
+// 6) Fermeture : retour au point de départ (xg, 0)
+bx[k] = bx[0]; by[k] = by[0];       lbl[k-1] = 2;  k++;
+
+// ---------- NUMBER OF SUBDIVISIONS PER SEGMENT ----------
+int nseg = k - 1;
+int[int] nn(nseg);
+for (int i = 0; i < nseg; i++) {
+    real ddx = bx[i+1] - bx[i];
+    real ddy = by[i+1] - by[i];
+    real Lseg = sqrt(ddx*ddx + ddy*ddy);
+    nn[i] = max(2, int(Lseg * meshsize));
 }
 
-// ---------- MESH GENERATION ----------
-mesh Th0 = square(meshsize, meshsize);
-fespace V0(Th0, P1);
-V0 ind = material(x, y);
-mesh Th = trunc(Th0, ind > 0.5);
+// ---------- INDEXED BORDER + BUILDMESH ----------
+border bd(t = 0, 1; i) {
+    x = bx[i] + t * (bx[i+1] - bx[i]);
+    y = by[i] + t * (by[i+1] - by[i]);
+    label = lbl[i];
+}
 
+mesh Th = buildmesh(bd(nn));
 savemesh(Th, outfile);
 
 cout << "MESH_SAVED=" << outfile << endl;
-cout << "MESH_NV=" << Th.nv << endl;
-cout << "MESH_NT=" << Th.nt << endl;
+cout << "MESH_NV="    << Th.nv  << endl;
+cout << "MESH_NT="    << Th.nt  << endl;

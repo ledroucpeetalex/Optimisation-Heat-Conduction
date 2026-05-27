@@ -1,18 +1,20 @@
 // =====================================================
 // solver.edp
 // Résout le problème de conduction stationnaire HEAT-COND
-// sur un maillage précalculé. Les paramètres sont passés
-// via la ligne de commande (getARGV).
+// sur un maillage précalculé (généré par mesh.edp).
+//
+// Convention de labels (cf. mesh.edp) :
+//   1 = base   (Dirichlet T=1)
+//   2 = TOUTES les autres frontières (Robin Bi*T + k*∂T/∂n = 0)
 //
 // Arguments :
-//   -meshfile <string>  chemin du .msh (généré par mesh.edp)
+//   -meshfile <string>  chemin du .msh
 //   -k1 ... -k5 <real>  conductivités par ailette (défaut 0.5)
 //   -Bi <real>          nombre de Biot (défaut 0.5)
 //   -doplot <int>       1 = affiche T à la fin
 //   -Tout <string>      si non vide, écrit x y T par sommet
 //
-// Sortie standard :
-//   "Objective_J=<valeur>" sur une ligne (parsée par Python)
+// Sortie standard : "Objective_J=<valeur>"
 // =====================================================
 
 include "getARGV.idp"
@@ -56,18 +58,19 @@ Vh kappa = inSpine(x, y) ? 1.0 : (
            inFin(x, y, fy5) ? k5 : 1.0 )))));
 
 // ---------- PDE ----------
-// Boundary labels (square): bottom=1, right=2, top=3, left=4
-// Base = bottom (Dirichlet T=1), Fin = right+top+left (Robin)
+// Base (label 1)  : Dirichlet T = 1
+// Reste (label 2) : Robin     Bi T + k ∂T/∂n = 0
 problem heat(T, v) =
       int2d(Th)( kappa * (dx(T)*dx(v) + dy(T)*dy(v)) )
-    + int1d(Th, 2, 3, 4)( Bi * T * v )
+    + int1d(Th, 2)( Bi * T * v )
     + on(1, T = 1);
 
 heat;
 
-// ---------- OBJECTIVE ----------
-real L = int1d(Th, 2, 3, 4)(1.0);
-real J = int1d(Th, 2, 3, 4)(T) / L;
+// ---------- OBJECTIVE J ----------
+// Moyenne de T sur la frontière "fin" = tout sauf la base.
+real L = int1d(Th, 2)(1.0);
+real J = int1d(Th, 2)(T) / L;
 
 cout << "Objective_J=" << J << endl;
 

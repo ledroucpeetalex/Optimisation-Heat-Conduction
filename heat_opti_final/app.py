@@ -8,6 +8,7 @@ Onglets :
   3. Visualisation    : maillage + champ T (intégré matplotlib).
 """
 
+import json
 import os
 import sys
 import threading
@@ -15,6 +16,8 @@ import tkinter as tk
 import tkinter.font as tkfont
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
+
+import numpy as np
 
 import matplotlib
 matplotlib.use("TkAgg")
@@ -50,6 +53,10 @@ MODES = {
 }
 BOUNDS = [(0.1, 1.0)] * 5 + [(0.01, 1.0)]
 PARAM_LABELS = ["k1", "k2", "k3", "k4", "k5", "Bi"]
+DEFAULT_PARAMS = {"k1": 0.5, "k2": 0.5, "k3": 0.5, "k4": 0.5, "k5": 0.5, "Bi": 0.5}
+DEFAULT_MESH_SIZE = "50"
+DEFAULT_MODE = "Recherche normale"
+SETTINGS_PATH = Path(__file__).resolve().parent / "config" / "last_inputs.json"
 
 # Palette
 C_BG       = "#f4f6f8"
@@ -80,6 +87,11 @@ class HeatCondGUI:
         self._build_header()
         self._build_notebook()
         self._build_statusbar()
+
+        # Pré-remplir depuis la dernière session si dispo
+        self._load_settings()
+        # Sauvegarder à la fermeture
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
     # ---------- Style ttk ----------
     def _setup_style(self) -> None:
@@ -180,8 +192,8 @@ class HeatCondGUI:
         for i, lbl in enumerate(PARAM_LABELS):
             low, high = BOUNDS[i]
             ttk.Label(pf, text=lbl + " :").grid(row=i, column=0, sticky="w", pady=3)
-            var = tk.StringVar(value="0.5")
-            e = ttk.Entry(pf, textvariable=var, width=12)
+            e = ttk.Entry(pf, width=12)
+            e.insert(0, str(DEFAULT_PARAMS[lbl]))
             e.grid(row=i, column=1, padx=8, pady=3, sticky="w")
             ttk.Label(pf, text=f"∈ [{low}, {high}]",
                       style="Muted.TLabel").grid(row=i, column=2, sticky="w")
@@ -191,7 +203,7 @@ class HeatCondGUI:
         mf = ttk.LabelFrame(tab, text="Maillage", padding=12)
         mf.grid(row=0, column=1, sticky="new", padx=(6, 0))
         ttk.Label(mf, text="mesh_size :").grid(row=0, column=0, sticky="w", pady=3)
-        self.mesh_size_var = tk.StringVar(value="50")
+        self.mesh_size_var = tk.StringVar(value=DEFAULT_MESH_SIZE)
         ttk.Entry(mf, textvariable=self.mesh_size_var, width=8)\
             .grid(row=0, column=1, padx=8, pady=3, sticky="w")
         ttk.Label(mf, text="(entier ≥ 10)",
@@ -220,6 +232,11 @@ class HeatCondGUI:
             command=self.calc_j_and_show,
         )
         self.btn_calc_show.pack(side=tk.LEFT)
+        ttk.Button(bf, text="↻ Reset", command=self.reset_inputs)\
+            .pack(side=tk.RIGHT)
+        ttk.Button(bf, text="★ Charger le meilleur design",
+                   command=self.load_best_into_inputs)\
+            .pack(side=tk.RIGHT, padx=(0, 8))
 
         # --- Résultat ---
         rf = ttk.LabelFrame(tab, text="Résultat", padding=12)
@@ -239,7 +256,7 @@ class HeatCondGUI:
         # --- Mode ---
         mf = ttk.LabelFrame(tab, text="Mode de recherche", padding=12)
         mf.grid(row=0, column=0, sticky="new")
-        self.mode_var = tk.StringVar(value="Recherche normale")
+        self.mode_var = tk.StringVar(value=DEFAULT_MODE)
         ttk.Label(mf, text="Niveau :").grid(row=0, column=0, sticky="w")
         cb = ttk.Combobox(mf, textvariable=self.mode_var, state="readonly",
                           values=list(MODES.keys()), width=26)
@@ -309,8 +326,17 @@ class HeatCondGUI:
                             variable=self.viz_kind).grid(
                 row=i // 3, column=i % 3, sticky="w", padx=8, pady=2)
 
+        # Toggle d'échelle pour la vue compare
+        self.shared_scale_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            ctrl,
+            text="Échelle de couleurs partagée (compare T_init / T_opt)",
+            variable=self.shared_scale_var,
+            command=self._on_shared_scale_change,
+        ).grid(row=2, column=0, columnspan=3, sticky="w", padx=8, pady=(6, 0))
+
         btns = ttk.Frame(ctrl)
-        btns.grid(row=2, column=0, columnspan=3, sticky="we", pady=(8, 0))
+        btns.grid(row=3, column=0, columnspan=3, sticky="we", pady=(8, 0))
         ttk.Button(btns, text="Actualiser", style="Accent.TButton",
                    command=self.refresh_viz).pack(side=tk.LEFT)
         ttk.Button(btns, text="Sauvegarder PNG…",
@@ -325,6 +351,11 @@ class HeatCondGUI:
         self.toolbar = NavigationToolbar2Tk(self.canvas, plot_frame)
         self.toolbar.update()
         self._draw_placeholder()
+
+    def _on_shared_scale_change(self) -> None:
+        # Si on est en train de regarder la comparaison, redessiner aussitôt.
+        if self.viz_kind.get() == "compare":
+            self.refresh_viz()
 
     def _draw_placeholder(self) -> None:
         self.fig.clear()
@@ -395,9 +426,11 @@ class HeatCondGUI:
     # Actions — calcul ponctuel
     # =======================================================================
     def calc_j(self) -> None:
+        self._save_settings()
         self._calc_j_common(show_after=False)
 
     def calc_j_and_show(self) -> None:
+        self._save_settings()
         self._calc_j_common(show_after=True)
 
     def _calc_j_common(self, show_after: bool) -> None:
@@ -440,6 +473,7 @@ class HeatCondGUI:
     # Actions — optimisation
     # =======================================================================
     def run_opt(self) -> None:
+        self._save_settings()
         cfg = MODES[self.mode_var.get()]
         if not messagebox.askyesno(
             "Optimisation",
@@ -562,24 +596,50 @@ class HeatCondGUI:
         if not Path(t_file).exists():
             raise FileNotFoundError(f"Fichier manquant : {t_file}")
         x, y, T = read_temperature_field(t_file)
-        # Charger le maillage pour une triangulation propre
-        mesh_kw = self._get_mesh_kwargs() or {"mesh_size": 50}
-        mesh_path = self._resolve_mesh_path(mesh_kw)
-        try:
-            _, triangles, _ = read_freefem_mesh(mesh_path)
-            if len(triangles) != 0 and triangles[:, :3].max() < len(x):
-                tri = triangles
-            else:
-                tri = None  # nombres de sommets différents -> Delaunay
-        except Exception:
-            tri = None
+        # Auto-détecter le .msh qui a produit ce fichier T.
+        tri = None
+        mesh_path = self._find_mesh_matching_T(x, y)
+        if mesh_path is not None:
+            try:
+                _, triangles, _ = read_freefem_mesh(mesh_path)
+                if len(triangles) and triangles[:, :3].max() < len(x):
+                    tri = triangles
+            except Exception:
+                tri = None
+        title_with_range = f"{title}\nT ∈ [{T.min():.3f}, {T.max():.3f}]"
         self.fig.clear()
         ax = self.fig.add_subplot(111)
         tcf = draw_temperature(ax, x, y, T, triangles=tri,
-                               title=title, cmap="inferno")
+                               title=title_with_range, cmap="inferno")
         self.fig.colorbar(tcf, ax=ax, fraction=0.046, pad=0.04, label="T")
         self.fig.tight_layout()
         self.canvas.draw()
+
+    # =======================================================================
+    # Mesh-T matching (auto-détection)
+    # =======================================================================
+    def _find_mesh_matching_T(self, x_dat, y_dat):
+        """Cherche dans cache/ un .msh dont les sommets matchent un fichier T.
+
+        Préfère un match exact des coordonnées ; à défaut, un match par
+        nombre de sommets (cas où plusieurs maillages ont la même densité).
+        """
+        x_dat = np.asarray(x_dat)
+        y_dat = np.asarray(y_dat)
+        fallback = None
+        for p in sorted(CACHE_DIR.glob("mesh_*.msh")):
+            try:
+                verts, _, _ = read_freefem_mesh(p)
+            except Exception:
+                continue
+            if len(verts) != len(x_dat):
+                continue
+            if (np.allclose(verts[:, 0], x_dat, atol=1e-9)
+                    and np.allclose(verts[:, 1], y_dat, atol=1e-9)):
+                return p
+            if fallback is None:
+                fallback = p
+        return fallback
 
     def _viz_compare(self) -> None:
         f_init = RESULTS_DIR / "T_initial.dat"
@@ -590,17 +650,50 @@ class HeatCondGUI:
             )
         x0, y0, T0 = read_temperature_field(f_init)
         x1, y1, T1 = read_temperature_field(f_opt)
-        vmin = min(T0.min(), T1.min())
-        vmax = max(T0.max(), T1.max())
+
+        # Auto-détecter le .msh qui a produit T_initial.dat (mêmes (x, y))
+        # pour éviter la Delaunay convexe (= hexagone qui ignore les vides).
+        tri = None
+        mesh_path = self._find_mesh_matching_T(x0, y0)
+        if mesh_path is not None:
+            try:
+                _, triangles, _ = read_freefem_mesh(mesh_path)
+                if (len(triangles)
+                        and triangles[:, :3].max() < len(x0)
+                        and triangles[:, :3].max() < len(x1)):
+                    tri = triangles
+            except Exception:
+                tri = None
+
+        title_init = f"Initial (x = 0.5)\nT ∈ [{T0.min():.3f}, {T0.max():.3f}]"
+        title_opt  = f"Optimisé\nT ∈ [{T1.min():.3f}, {T1.max():.3f}]"
+
         self.fig.clear()
-        ax1 = self.fig.add_subplot(121)
-        draw_temperature(ax1, x0, y0, T0, title="Initial (x = 0.5)",
-                         vmin=vmin, vmax=vmax)
-        ax2 = self.fig.add_subplot(122)
-        tcf = draw_temperature(ax2, x1, y1, T1, title="Optimisé",
-                               vmin=vmin, vmax=vmax)
-        self.fig.colorbar(tcf, ax=[ax1, ax2], fraction=0.04, pad=0.04, label="T")
-        self.fig.suptitle("T : initial vs optimisé")
+        if self.shared_scale_var.get():
+            # Échelle partagée : 1 seule colorbar
+            vmin = min(T0.min(), T1.min())
+            vmax = max(T0.max(), T1.max())
+            ax1 = self.fig.add_subplot(121)
+            draw_temperature(ax1, x0, y0, T0, triangles=tri,
+                             title=title_init, vmin=vmin, vmax=vmax)
+            ax2 = self.fig.add_subplot(122)
+            tcf = draw_temperature(ax2, x1, y1, T1, triangles=tri,
+                                   title=title_opt, vmin=vmin, vmax=vmax)
+            self.fig.colorbar(tcf, ax=[ax1, ax2],
+                              fraction=0.04, pad=0.04, label="T")
+            self.fig.suptitle("T : initial vs optimisé  (échelle partagée)")
+        else:
+            # Échelle indépendante : 1 colorbar par panneau
+            ax1 = self.fig.add_subplot(121)
+            tcf1 = draw_temperature(ax1, x0, y0, T0, triangles=tri,
+                                    title=title_init)
+            self.fig.colorbar(tcf1, ax=ax1, fraction=0.046, pad=0.04, label="T")
+            ax2 = self.fig.add_subplot(122)
+            tcf2 = draw_temperature(ax2, x1, y1, T1, triangles=tri,
+                                    title=title_opt)
+            self.fig.colorbar(tcf2, ax=ax2, fraction=0.046, pad=0.04, label="T")
+            self.fig.suptitle("T : initial vs optimisé  (échelles indépendantes)")
+        self.fig.tight_layout()
         self.canvas.draw()
 
     def _viz_convergence(self) -> None:
@@ -643,6 +736,75 @@ class HeatCondGUI:
             self.root.config(cursor="")
         else:
             self.root.config(cursor="watch")
+
+
+    # =======================================================================
+    # Persistance des inputs (entre sessions)
+    # =======================================================================
+    def _save_settings(self) -> None:
+        """Sauvegarde les valeurs courantes pour le prochain lancement."""
+        try:
+            SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
+            data = {
+                "params":    {k: self.entries[k].get() for k in PARAM_LABELS},
+                "mesh_size": self.mesh_size_var.get(),
+                "mesh_path": self.mesh_path_var.get(),
+                "mode":      self.mode_var.get(),
+            }
+            SETTINGS_PATH.write_text(json.dumps(data, indent=2))
+        except Exception:
+            pass  # silencieux : la persistance ne doit jamais bloquer l'app
+
+    def _load_settings(self) -> None:
+        """Pré-remplit les champs depuis le dernier état sauvegardé, si présent."""
+        if not SETTINGS_PATH.exists():
+            return
+        try:
+            data = json.loads(SETTINGS_PATH.read_text())
+        except Exception:
+            return
+        for k, v in data.get("params", {}).items():
+            if k in self.entries:
+                self.entries[k].delete(0, "end")
+                self.entries[k].insert(0, str(v))
+        if "mesh_size" in data:
+            self.mesh_size_var.set(str(data["mesh_size"]))
+        if "mesh_path" in data:
+            self.mesh_path_var.set(str(data["mesh_path"]))
+        if "mode" in data and data["mode"] in MODES:
+            self.mode_var.set(str(data["mode"]))
+            self._on_mode_change()
+        self._set_status("Champs pré-remplis depuis la dernière session.")
+
+    def load_best_into_inputs(self) -> None:
+        """Pré-remplit les champs k1..k5, Bi avec le meilleur design connu."""
+        best = load_best_design()
+        if best is None:
+            messagebox.showinfo(
+                "Pas de meilleur design",
+                "Aucun historique d'optimisation trouvé "
+                "(results/optimization_history.csv manquant ou vide).",
+            )
+            return
+        for k, v in zip(PARAM_LABELS, best):
+            self.entries[k].delete(0, "end")
+            self.entries[k].insert(0, f"{v:.6f}")
+        self._set_status("Meilleur design chargé dans les champs.")
+
+    def reset_inputs(self) -> None:
+        """Restaure les valeurs par défaut codées en dur."""
+        for k in PARAM_LABELS:
+            self.entries[k].delete(0, "end")
+            self.entries[k].insert(0, str(DEFAULT_PARAMS[k]))
+        self.mesh_size_var.set(DEFAULT_MESH_SIZE)
+        self.mesh_path_var.set("")
+        self.mode_var.set(DEFAULT_MODE)
+        self._on_mode_change()
+        self._set_status("Valeurs par défaut restaurées.")
+
+    def _on_close(self) -> None:
+        self._save_settings()
+        self.root.destroy()
 
 
 if __name__ == "__main__":

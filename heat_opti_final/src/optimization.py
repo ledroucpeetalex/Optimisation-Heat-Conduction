@@ -1,8 +1,8 @@
 """Méthodes d'optimisation couplées au solveur FreeFEM++.
 
-Les variables globales `history`, `best_J`, `best_x` sont volontairement
-conservées (lisibilité du code "minimal version"). Toute fonction
-appelant un optimiseur réinitialise l'état via `reset_optimization`.
+Drapeau global `VERBOSE` :
+    Mettre `optimization.VERBOSE = False` pour silencer les prints par
+    évaluation (utile dans un notebook).
 """
 
 import time
@@ -14,6 +14,9 @@ from tqdm import tqdm
 
 from .freefem_interface import run_solver
 from .utils import save_best_design
+
+# Drapeau de verbosité — affecte uniquement le print par évaluation.
+VERBOSE: bool = True
 
 # État global (réinitialisé par reset_optimization)
 history: list = []
@@ -52,7 +55,8 @@ def evaluate(x, mesh_size: int = 50) -> float:
         best_x = np.array(x, dtype=float).copy()
         save_best_design(best_x, best_J)
 
-    print(f"  Éval {iteration_counter:3d} | J = {J:.8f} | temps = {elapsed:.2f}s")
+    if VERBOSE:
+        print(f"  Éval {iteration_counter:3d} | J = {J:.8f} | temps = {elapsed:.2f}s")
     iteration_counter += 1
     return -J
 
@@ -64,9 +68,16 @@ def run_differential_evolution(
     mesh_size: int = 50,
     seed: Optional[int] = 42,
     progress_cb: Optional[Callable[[int, int], None]] = None,
+    **scipy_kwargs,
 ):
+    """Wrapper scipy.optimize.differential_evolution avec historique.
+
+    `**scipy_kwargs` accepte tous les paramètres natifs de scipy :
+    `mutation`, `recombination`, `strategy`, `tol`, `init`, etc.
+    """
     reset_optimization()
-    pbar = tqdm(total=maxiter, desc="Differential Evolution", unit="gen")
+    pbar = tqdm(total=maxiter, desc="Differential Evolution", unit="gen",
+                disable=not VERBOSE)
     state = {"gen": 0}
 
     def callback(xk, conv):
@@ -85,6 +96,7 @@ def run_differential_evolution(
         callback=callback,
         seed=seed,
         polish=False,
+        **scipy_kwargs,
     )
     pbar.close()
     elapsed = time.time() - start
@@ -106,11 +118,14 @@ def run_nelder_mead(
     maxiter: int = 100,
     mesh_size: int = 50,
     progress_cb: Optional[Callable[[int, int], None]] = None,
+    **scipy_kwargs,
 ):
+    """Wrapper scipy.optimize.minimize(method='Nelder-Mead') avec historique."""
     reset_optimization()
     if x0 is None:
         x0 = [(b[0] + b[1]) / 2 for b in bounds]
-    pbar = tqdm(total=maxiter, desc="Nelder-Mead", unit="iter")
+    pbar = tqdm(total=maxiter, desc="Nelder-Mead", unit="iter",
+                disable=not VERBOSE)
     state = {"it": 0}
 
     def callback(xk):
@@ -120,6 +135,10 @@ def run_nelder_mead(
             progress_cb(state["it"], maxiter)
         return False
 
+    options = scipy_kwargs.pop("options", {})
+    options.setdefault("maxiter", maxiter)
+    options.setdefault("disp", False)
+
     start = time.time()
     result = minimize(
         lambda x: evaluate(x, mesh_size=mesh_size),
@@ -127,7 +146,8 @@ def run_nelder_mead(
         method="Nelder-Mead",
         bounds=bounds,
         callback=callback,
-        options={"maxiter": maxiter, "disp": False},
+        options=options,
+        **scipy_kwargs,
     )
     pbar.close()
     elapsed = time.time() - start
@@ -150,11 +170,18 @@ def run_basinhopping(
     mesh_size: int = 50,
     seed: Optional[int] = 42,
     progress_cb: Optional[Callable[[int, int], None]] = None,
+    **scipy_kwargs,
 ):
+    """Wrapper scipy.optimize.basinhopping avec historique.
+
+    `**scipy_kwargs` accepte les paramètres natifs : `stepsize`, `T`,
+    `disp`, etc.
+    """
     reset_optimization()
     if x0 is None:
         x0 = [(b[0] + b[1]) / 2 for b in bounds]
-    pbar = tqdm(total=niter, desc="Basinhopping", unit="iter")
+    pbar = tqdm(total=niter, desc="Basinhopping", unit="iter",
+                disable=not VERBOSE)
     state = {"it": 0}
 
     def callback(x, f, accepted):
@@ -171,6 +198,7 @@ def run_basinhopping(
         minimizer_kwargs={"bounds": bounds, "method": "L-BFGS-B"},
         callback=callback,
         seed=seed,
+        **scipy_kwargs,
     )
     pbar.close()
     elapsed = time.time() - start
