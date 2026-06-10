@@ -20,7 +20,7 @@ heat_opti_final/
 │   └── solver.edp      # résout la PDE pour (k1..k5, Bi) passés en CLI
 ├── src/
 │   ├── freefem_interface.py   # ensure_mesh + run_solver + parsing stdout
-│   ├── optimization.py        # DE / Nelder-Mead / Basinhopping
+│   ├── optimization.py        # DE / NM / BH / L-BFGS / Adam→L-BFGS
 │   ├── sensitivity.py         # point initial / sweep / mesh
 │   ├── meta_optimization.py   # grid search sur popsize DE
 │   ├── utils.py               # save_best_design / save_history / load_best_design
@@ -29,7 +29,9 @@ heat_opti_final/
 ├── app.py                     # interface Tkinter
 ├── main.py                    # pipeline complet (3 méthodes + analyses)
 ├── user_interface.py          # calcul ponctuel CLI
-└── run_sensitivity_study.py   # études de sensibilité
+├── run_sensitivity_study.py   # études de sensibilité
+├── comparison_methods.ipynb   # 7 études comparatives (pour le rapport)
+└── standalone_compare/        # solveur Python + comparaison (sans FreeFEM)
 ```
 
 Les maillages générés sont mis en cache dans `cache/mesh_<size>.msh`.
@@ -54,6 +56,27 @@ Les résultats vont dans `results/` (créé automatiquement).
 
 L'utilisateur peut aussi fournir son propre fichier `.msh` via le bouton
 « Parcourir » dans la section Maillage.
+
+### Choix de l'algorithme (onglet Optimisation)
+
+L'onglet **Optimisation** procède en deux étapes :
+
+1. **① Performance maximale (sans contrainte de prix)** — maximise J seul ; donne la référence (borne haute).
+2. **② Compromis performance / coût (avec contrainte de prix)** — saisir un poids λ > 0 ; maximise J − λ·k̄ et affiche la perte de performance et le matériau économisé par rapport à l'étape ①.
+
+Un menu déroulant permet de choisir l'algorithme d'optimisation :
+
+| Algorithme        | Type                | Remarque                                            |
+|-------------------|---------------------|-----------------------------------------------------|
+| **Nelder-Mead**   | local, simplexe     | **défaut recommandé** — le plus efficient ici       |
+| Differential Evolution | global, populationnel | robuste, sert de vérification d'optimalité globale |
+| Adam → L-BFGS     | hybride à gradient  | Adam (préconditionné) puis raffinement L-BFGS-B     |
+
+Sur ce problème (fonctionnelle lisse, optimum sur la frontière), Nelder-Mead
+atteint l'optimum global $x^\star=(1,1,1,1,1,\,0{,}01)$ au plus faible coût.
+Voir le rapport (`final_report.md`) et l'étude 7 du notebook pour la comparaison
+détaillée et le rôle d'Adam comme préconditionneur (L-BFGS seul stagne sur ce
+problème mal conditionné).
 
 ## Sorties (dans `results/`)
 

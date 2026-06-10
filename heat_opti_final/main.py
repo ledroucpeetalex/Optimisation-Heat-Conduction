@@ -1,7 +1,7 @@
 """Programme principal en ligne de commande.
 
 - Évalue le design initial.
-- Lance les 3 méthodes (DE, Nelder-Mead, Basinhopping).
+- Lance les 3 méthodes (DE, Nelder-Mead, Adam → L-BFGS).
 - Génère convergence par méthode + convergence comparée.
 - Génère les champs T initial vs optimisé.
 """
@@ -13,7 +13,7 @@ import pandas as pd
 
 from src.freefem_interface import ensure_mesh, run_solver
 from src.optimization import (
-    run_basinhopping,
+    run_adam_then_lbfgs,
     run_differential_evolution,
     run_nelder_mead,
 )
@@ -56,7 +56,7 @@ def main() -> None:
     methods = [
         ("Differential Evolution", run_differential_evolution, opt_cfg["differential_evolution"]),
         ("Nelder-Mead",            run_nelder_mead,            opt_cfg["nelder_mead"]),
-        ("Basinhopping",           run_basinhopping,           opt_cfg["basinhopping"]),
+        ("Adam-then-LBFGS",        run_adam_then_lbfgs,        opt_cfg["adam_then_lbfgs"]),
     ]
 
     all_results = []

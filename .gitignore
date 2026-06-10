@@ -34,16 +34,15 @@ ENV/
 *.a
 *.mod
 
-# Editor specific files
+# Editor / tooling
 .vscode/
 .idea/
 *.iml
+.claude/
 
-# Other
-heat_solver.edp.bak
-objective.txt
-params.txt
-
-*.png
-*.txt
-*.csv
+# LaTeX build files
+*.aux
+*.fdb_latexmk
+*.fls
+*.synctex.gz
+*.toc

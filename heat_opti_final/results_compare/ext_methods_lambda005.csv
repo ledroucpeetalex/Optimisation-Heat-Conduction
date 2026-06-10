@@ -1,0 +1,4 @@
+Méthode,J,coût k̄,F = J-λk̄,n_eval,temps (s)
+Nelder-Mead,0.7206,0.490,0.6961,178,0.46
+Differential Evolution,0.7237,0.581,0.6947,324,0.86
+Adam → L-BFGS,0.7212,0.502,0.6961,304,0.79

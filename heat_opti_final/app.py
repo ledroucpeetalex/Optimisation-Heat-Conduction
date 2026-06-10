@@ -36,7 +36,12 @@ from src.freefem_interface import (  # noqa: E402
     read_temperature_field,
     run_solver,
 )
-from src.optimization import run_differential_evolution  # noqa: E402
+from src.optimization import (  # noqa: E402
+    run_adam_then_lbfgs,
+    run_differential_evolution,
+    run_nelder_mead,
+)
+from src import optimization as optmod  # noqa: E402  (réglage de COST_LAMBDA)
 from src.utils import RESULTS_DIR, load_best_design, save_history  # noqa: E402
 from src.visualization import (  # noqa: E402
     draw_convergence,
@@ -56,6 +61,8 @@ PARAM_LABELS = ["k1", "k2", "k3", "k4", "k5", "Bi"]
 DEFAULT_PARAMS = {"k1": 0.5, "k2": 0.5, "k3": 0.5, "k4": 0.5, "k5": 0.5, "Bi": 0.5}
 DEFAULT_MESH_SIZE = "50"
 DEFAULT_MODE = "Recherche normale"
+ALGOS = ["Nelder-Mead", "Differential Evolution", "Adam → L-BFGS"]
+DEFAULT_ALGO = "Nelder-Mead"
 SETTINGS_PATH = Path(__file__).resolve().parent / "config" / "last_inputs.json"
 
 # Palette
@@ -83,6 +90,8 @@ class HeatCondGUI:
         self.last_T_file: Path | None = None
         self.last_best_x: list | None = None
         self.last_history: list = []
+        self.perf_only_J = None      # J de l'étape ① (référence)
+        self.perf_only_cost = None
 
         self._build_header()
         self._build_notebook()
@@ -253,48 +262,77 @@ class HeatCondGUI:
         tab = self.tab_opt
         tab.columnconfigure(0, weight=1)
 
-        # --- Mode ---
-        mf = ttk.LabelFrame(tab, text="Mode de recherche", padding=12)
+        # --- Réglages communs ---
+        mf = ttk.LabelFrame(tab, text="Réglages communs", padding=12)
         mf.grid(row=0, column=0, sticky="new")
+        ttk.Label(mf, text="Algorithme :").grid(row=0, column=0, sticky="w")
+        self.algo_var = tk.StringVar(value=DEFAULT_ALGO)
+        ttk.Combobox(mf, textvariable=self.algo_var, state="readonly",
+                     values=ALGOS, width=24).grid(row=0, column=1, padx=8, sticky="w")
+        ttk.Label(mf, text="Effort :").grid(row=1, column=0, sticky="w", pady=(8, 0))
         self.mode_var = tk.StringVar(value=DEFAULT_MODE)
-        ttk.Label(mf, text="Niveau :").grid(row=0, column=0, sticky="w")
         cb = ttk.Combobox(mf, textvariable=self.mode_var, state="readonly",
-                          values=list(MODES.keys()), width=26)
-        cb.grid(row=0, column=1, padx=8, sticky="w")
+                          values=list(MODES.keys()), width=24)
+        cb.grid(row=1, column=1, padx=8, pady=(8, 0), sticky="w")
         cb.bind("<<ComboboxSelected>>", self._on_mode_change)
         self.mode_info = ttk.Label(mf, text="", style="Muted.TLabel")
-        self.mode_info.grid(row=1, column=0, columnspan=3, sticky="w", pady=(6, 0))
-        ttk.Label(mf, text="Algorithme : Differential Evolution (scipy)",
-                  style="Muted.TLabel").grid(row=2, column=0, columnspan=3, sticky="w")
+        self.mode_info.grid(row=2, column=0, columnspan=3, sticky="w", pady=(6, 0))
+        ttk.Label(mf, text="Nelder-Mead recommandé ; popsize ne concerne que DE.",
+                  style="Muted.TLabel").grid(row=3, column=0, columnspan=3, sticky="w")
         self._on_mode_change()
 
-        # --- Bouton ---
-        bf = ttk.Frame(tab)
-        bf.grid(row=1, column=0, sticky="we", pady=(14, 6))
-        self.btn_opt = ttk.Button(bf, text="Lancer l'optimisation",
-                                  style="Accent.TButton", command=self.run_opt)
-        self.btn_opt.pack(side=tk.LEFT)
-        self.btn_show_init_opt = ttk.Button(
-            bf, text="Afficher T initial vs optimisé",
-            command=lambda: self._select_viz_kind("compare"),
-        )
-        self.btn_show_init_opt.pack(side=tk.LEFT, padx=(8, 0))
+        # --- Étape 1 : sans contrainte de prix ---
+        s1 = ttk.LabelFrame(
+            tab, text="\u2460  Performance maximale  (sans contrainte de prix)",
+            padding=12)
+        s1.grid(row=1, column=0, sticky="new", pady=(10, 0))
+        s1.columnconfigure(1, weight=1)
+        ttk.Label(s1, text="Maximise la performance J seule : donne la référence "
+                           "(borne haute) du problème.",
+                  style="Muted.TLabel").grid(row=0, column=0, columnspan=2, sticky="w")
+        self.btn_stage1 = ttk.Button(s1, text="Optimiser la performance",
+                                     style="Accent.TButton",
+                                     command=lambda: self.run_opt(1))
+        self.btn_stage1.grid(row=1, column=0, sticky="w", pady=(8, 6))
+        self.opt_result_var1 = tk.StringVar(value="En attente…")
+        ttk.Label(s1, textvariable=self.opt_result_var1, style="Result.TLabel",
+                  background=C_BG, wraplength=900, justify="left").grid(
+            row=2, column=0, columnspan=2, sticky="w")
 
-        # --- Progression ---
+        # --- Étape 2 : avec contrainte de prix ---
+        s2 = ttk.LabelFrame(
+            tab, text="\u2461  Compromis performance / coût  (avec contrainte de prix)",
+            padding=12)
+        s2.grid(row=2, column=0, sticky="new", pady=(10, 0))
+        s2.columnconfigure(2, weight=1)
+        ttk.Label(s2, text="Poids du coût  λ :").grid(row=0, column=0, sticky="w")
+        self.lambda_var = tk.StringVar(value="0.05")
+        ttk.Entry(s2, textvariable=self.lambda_var, width=10).grid(
+            row=0, column=1, padx=8, sticky="w")
+        ttk.Label(s2, text="maximise  J − λ·k̄  (k̄ = coût matériau moyen).  "
+                           "λ ↑  ⇒  moins de matériau, moins de performance.",
+                  style="Muted.TLabel").grid(row=1, column=0, columnspan=3,
+                                             sticky="w", pady=(4, 0))
+        self.btn_stage2 = ttk.Button(s2, text="Optimiser avec coût",
+                                     style="Accent.TButton",
+                                     command=lambda: self.run_opt(2))
+        self.btn_stage2.grid(row=2, column=0, sticky="w", pady=(8, 6))
+        self.btn_show_init_opt = ttk.Button(
+            s2, text="Afficher T initial vs optimisé",
+            command=lambda: self._select_viz_kind("compare"))
+        self.btn_show_init_opt.grid(row=2, column=1, sticky="w", pady=(8, 6))
+        self.opt_result_var2 = tk.StringVar(value="En attente…")
+        ttk.Label(s2, textvariable=self.opt_result_var2, style="Result.TLabel",
+                  background=C_BG, wraplength=900, justify="left").grid(
+            row=3, column=0, columnspan=3, sticky="w")
+
+        # --- Progression (commune) ---
         pf = ttk.LabelFrame(tab, text="Progression", padding=12)
-        pf.grid(row=2, column=0, sticky="new", pady=(8, 0))
+        pf.grid(row=3, column=0, sticky="new", pady=(10, 0))
         self.progress = ttk.Progressbar(pf, mode="determinate", maximum=100)
         self.progress.pack(fill=tk.X)
         self.progress_label = ttk.Label(pf, text="—", style="Muted.TLabel")
         self.progress_label.pack(anchor="w", pady=(4, 0))
-
-        # --- Résultat ---
-        rf = ttk.LabelFrame(tab, text="Résultat", padding=12)
-        rf.grid(row=3, column=0, sticky="nsew", pady=(8, 0))
-        tab.rowconfigure(3, weight=1)
-        self.opt_result_var = tk.StringVar(value="En attente…")
-        ttk.Label(rf, textvariable=self.opt_result_var, style="Result.TLabel",
-                  background=C_BG, wraplength=900, justify="left").pack(anchor="w")
 
     def _on_mode_change(self, *_):
         cfg = MODES[self.mode_var.get()]
@@ -345,7 +383,8 @@ class HeatCondGUI:
         # --- Canvas matplotlib ---
         plot_frame = ttk.Frame(tab, style="Card.TFrame")
         plot_frame.grid(row=1, column=0, sticky="nsew", pady=(8, 0))
-        self.fig = Figure(figsize=(8, 6), dpi=100, facecolor=C_CARD)
+        self.fig = Figure(figsize=(8, 6), dpi=100, facecolor=C_CARD,
+                          constrained_layout=True)
         self.canvas = FigureCanvasTkAgg(self.fig, master=plot_frame)
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         self.toolbar = NavigationToolbar2Tk(self.canvas, plot_frame)
@@ -472,66 +511,124 @@ class HeatCondGUI:
     # =======================================================================
     # Actions — optimisation
     # =======================================================================
-    def run_opt(self) -> None:
+    def run_opt(self, stage: int) -> None:
         self._save_settings()
         cfg = MODES[self.mode_var.get()]
+        if stage == 2:
+            try:
+                lam = max(0.0, float(self.lambda_var.get()))
+            except ValueError:
+                lam = 0.0
+            if lam == 0:
+                messagebox.showwarning(
+                    "λ = 0",
+                    "Pour l'étape \u2461 entrez un poids de coût λ > 0 "
+                    "(sinon le résultat est identique à l'étape \u2460).")
+                return
+            title = f"\u2461 Compromis avec coût  (λ = {lam:g})"
+            result_var = self.opt_result_var2
+        else:
+            lam = 0.0
+            title = "\u2460 Performance maximale (sans coût)"
+            result_var = self.opt_result_var1
+
         if not messagebox.askyesno(
             "Optimisation",
-            f"Mode : {self.mode_var.get()}\n"
-            f"mesh_size = {cfg['mesh_size']}, maxiter = {cfg['maxiter']}, popsize = {cfg['popsize']}\n\n"
+            f"{title}\n"
+            f"Algorithme : {self.algo_var.get()}   |   Effort : {self.mode_var.get()}\n"
+            f"mesh = {cfg['mesh_size']}, maxiter = {cfg['maxiter']}, popsize = {cfg['popsize']}\n\n"
             "Lancer ?",
         ):
             return
-        self.opt_result_var.set(f"[{self.mode_var.get()}] en cours…")
+        result_var.set("en cours…")
         self._set_status("Optimisation en cours…")
         self._set_busy(True)
         self.progress["maximum"] = cfg["maxiter"]
         self.progress["value"] = 0
-        self.progress_label.config(text=f"0 / {cfg['maxiter']} générations")
-        threading.Thread(target=self._do_opt, args=(cfg,), daemon=True).start()
+        self.progress_label.config(text=f"0 / {cfg['maxiter']}")
+        threading.Thread(target=self._do_opt, args=(cfg, lam, stage),
+                         daemon=True).start()
 
-    def _do_opt(self, cfg):
+    def _do_opt(self, cfg, lam, stage):
         def progress_cb(done, total):
             self.root.after(0, lambda: self._update_progress(done, total))
+        result_var = self.opt_result_var2 if stage == 2 else self.opt_result_var1
         try:
+            optmod.COST_LAMBDA = lam
             ensure_mesh(cfg["mesh_size"])
             # T initial (x0 = 0.5)
             t_init = RESULTS_DIR / "T_initial.dat"
             t_init.parent.mkdir(parents=True, exist_ok=True)
             run_solver([0.5] * 5 + [0.5], mesh_size=cfg["mesh_size"],
                        doplot=0, t_out=str(t_init))
-            # Optim
-            res = run_differential_evolution(
-                BOUNDS,
-                maxiter=cfg["maxiter"], popsize=cfg["popsize"],
-                mesh_size=cfg["mesh_size"], progress_cb=progress_cb,
-            )
+            # Optim — dispatch selon l'algorithme choisi
+            algo = self.algo_var.get()
+            x0 = [0.5] * 5 + [0.5]
+            if algo == "Differential Evolution":
+                res = run_differential_evolution(
+                    BOUNDS,
+                    maxiter=cfg["maxiter"], popsize=cfg["popsize"],
+                    mesh_size=cfg["mesh_size"], progress_cb=progress_cb,
+                )
+            elif algo == "Adam → L-BFGS":
+                res = run_adam_then_lbfgs(
+                    BOUNDS, x0=x0,
+                    n_adam_iters=max(20, cfg["maxiter"] * 2),
+                    maxiter_lbfgs=50,
+                    mesh_size=cfg["mesh_size"], progress_cb=progress_cb,
+                )
+            else:  # Nelder-Mead (défaut)
+                res = run_nelder_mead(
+                    BOUNDS, x0=x0,
+                    maxiter=max(200, cfg["maxiter"] * 15),
+                    mesh_size=cfg["mesh_size"], progress_cb=progress_cb,
+                )
             self.last_history = res["history"]
             self.last_best_x = list(res["best_x"])
             save_history(res["history"])
             plot_convergence(res["history"])
-            # T optimisé
+            # T optimisé (on récupère la vraie performance J au point trouvé)
             t_opt = RESULTS_DIR / "T_optimized.dat"
-            run_solver(self.last_best_x, mesh_size=cfg["mesh_size"],
-                       doplot=0, t_out=str(t_opt))
+            J_opt = run_solver(self.last_best_x, mesh_size=cfg["mesh_size"],
+                               doplot=0, t_out=str(t_opt))
+            cost = sum(self.last_best_x[:5]) / 5.0
+            xstr = ", ".join(f"{v:.3f}" for v in self.last_best_x)
 
-            msg = (
-                f"Méthode : {res['method']}\n"
-                f"Meilleur J = {res['best_J']:.8f}\n"
-                f"Évaluations = {res['n_eval']}   |   Temps = {res['time']:.1f} s\n"
-                f"x* = {[f'{v:.4f}' for v in res['best_x']]}\n\n"
-                f"results/optimization_history.csv et convergence.png mis à jour.\n"
-                f"results/T_initial.dat et T_optimized.dat exportés."
-            )
-            self.root.after(0, lambda: self.opt_result_var.set(msg))
+            if stage == 1:
+                self.perf_only_J = J_opt
+                self.perf_only_cost = cost
+                msg = (
+                    f"\u2460 Performance maximale — {res['method']}\n"
+                    f"J* = {J_opt:.6f}   (référence, borne haute)\n"
+                    f"Coût matériau k̄ = {cost:.4f}\n"
+                    f"Évaluations = {res['n_eval']}   |   Temps = {res['time']:.1f} s\n"
+                    f"x* = ({xstr})"
+                )
+            else:
+                cmp = ""
+                if self.perf_only_J:
+                    dJ = 100 * (J_opt - self.perf_only_J) / self.perf_only_J
+                    dC = 100 * (cost - self.perf_only_cost) / self.perf_only_cost
+                    cmp = (f"vs étape \u2460 : performance {dJ:+.1f} %   |   "
+                           f"matériau {dC:+.1f} %\n")
+                msg = (
+                    f"\u2461 Compromis  λ = {lam:g} — {res['method']}\n"
+                    f"J (performance) = {J_opt:.6f}   |   coût k̄ = {cost:.4f}\n"
+                    f"F = J − λ·k̄ = {J_opt - lam * cost:.6f}\n"
+                    + cmp +
+                    f"Évaluations = {res['n_eval']}   |   Temps = {res['time']:.1f} s\n"
+                    f"x* = ({xstr})"
+                )
+            self.root.after(0, lambda: result_var.set(msg))
             self.root.after(0, lambda: self._set_status("Optimisation terminée."))
             self.root.after(0, lambda: self._select_viz_kind("compare"))
         except Exception as e:
             err = str(e)
-            self.root.after(0, lambda: self.opt_result_var.set(f"Erreur : {err[:300]}"))
+            self.root.after(0, lambda: result_var.set(f"Erreur : {err[:300]}"))
             self.root.after(0, lambda: messagebox.showerror("Erreur", err))
             self.root.after(0, lambda: self._set_status("Erreur lors de l'optimisation."))
         finally:
+            optmod.COST_LAMBDA = 0.0
             self.root.after(0, lambda: self._set_busy(False))
 
     def _update_progress(self, done: int, total: int) -> None:
@@ -582,7 +679,6 @@ class HeatCondGUI:
         self.fig.clear()
         ax = self.fig.add_subplot(111)
         draw_mesh(ax, vertices, triangles, edges, show_labels=True)
-        self.fig.tight_layout()
         self.canvas.draw()
 
     def _viz_T_current(self) -> None:
@@ -612,7 +708,6 @@ class HeatCondGUI:
         tcf = draw_temperature(ax, x, y, T, triangles=tri,
                                title=title_with_range, cmap="inferno")
         self.fig.colorbar(tcf, ax=ax, fraction=0.046, pad=0.04, label="T")
-        self.fig.tight_layout()
         self.canvas.draw()
 
     # =======================================================================
@@ -693,7 +788,6 @@ class HeatCondGUI:
                                     title=title_opt)
             self.fig.colorbar(tcf2, ax=ax2, fraction=0.046, pad=0.04, label="T")
             self.fig.suptitle("T : initial vs optimisé  (échelles indépendantes)")
-        self.fig.tight_layout()
         self.canvas.draw()
 
     def _viz_convergence(self) -> None:
@@ -711,7 +805,6 @@ class HeatCondGUI:
         self.fig.clear()
         ax = self.fig.add_subplot(111)
         draw_convergence(ax, history)
-        self.fig.tight_layout()
         self.canvas.draw()
 
     def save_viz(self) -> None:
@@ -730,7 +823,7 @@ class HeatCondGUI:
     # =======================================================================
     def _set_busy(self, busy: bool) -> None:
         state = ("disabled" if busy else "normal")
-        for w in (self.btn_calc, self.btn_calc_show, self.btn_opt):
+        for w in (self.btn_calc, self.btn_calc_show, self.btn_stage1, self.btn_stage2):
             w.config(state=state)
         if not busy:
             self.root.config(cursor="")
@@ -750,6 +843,7 @@ class HeatCondGUI:
                 "mesh_size": self.mesh_size_var.get(),
                 "mesh_path": self.mesh_path_var.get(),
                 "mode":      self.mode_var.get(),
+                "algo":      self.algo_var.get(),
             }
             SETTINGS_PATH.write_text(json.dumps(data, indent=2))
         except Exception:
@@ -774,6 +868,8 @@ class HeatCondGUI:
         if "mode" in data and data["mode"] in MODES:
             self.mode_var.set(str(data["mode"]))
             self._on_mode_change()
+        if "algo" in data and data["algo"] in ALGOS:
+            self.algo_var.set(str(data["algo"]))
         self._set_status("Champs pré-remplis depuis la dernière session.")
 
     def load_best_into_inputs(self) -> None:

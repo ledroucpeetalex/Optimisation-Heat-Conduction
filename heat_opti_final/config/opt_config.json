@@ -1,17 +1,66 @@
 {
   "bounds": [
-    [0.1, 1.0], [0.1, 1.0], [0.1, 1.0], [0.1, 1.0], [0.1, 1.0],
-    [0.01, 1.0]
+    [
+      0.1,
+      1.0
+    ],
+    [
+      0.1,
+      1.0
+    ],
+    [
+      0.1,
+      1.0
+    ],
+    [
+      0.1,
+      1.0
+    ],
+    [
+      0.1,
+      1.0
+    ],
+    [
+      0.01,
+      1.0
+    ]
   ],
   "modes": {
-    "fast":     {"mesh_size": 25, "maxiter": 5,  "popsize": 4},
-    "normal":   {"mesh_size": 50, "maxiter": 15, "popsize": 8},
-    "deep":     {"mesh_size": 80, "maxiter": 30, "popsize": 15}
+    "fast": {
+      "mesh_size": 25,
+      "maxiter": 5,
+      "popsize": 4
+    },
+    "normal": {
+      "mesh_size": 50,
+      "maxiter": 15,
+      "popsize": 8
+    },
+    "deep": {
+      "mesh_size": 80,
+      "maxiter": 30,
+      "popsize": 15
+    }
   },
   "optimization": {
-    "differential_evolution": {"maxiter": 15, "popsize": 8, "mesh_size": 50},
-    "nelder_mead":            {"maxiter": 100, "mesh_size": 50},
-    "basinhopping":           {"niter": 30, "mesh_size": 50}
+    "differential_evolution": {
+      "maxiter": 15,
+      "popsize": 8,
+      "mesh_size": 50
+    },
+    "nelder_mead": {
+      "maxiter": 100,
+      "mesh_size": 50
+    },
+    "basinhopping": {
+      "niter": 30,
+      "mesh_size": 50
+    },
+    "adam_then_lbfgs": {
+      "n_adam_iters": 25,
+      "maxiter_lbfgs": 50,
+      "mesh_size": 50
+    }
   },
   "default_mode": "normal"
 }
