@@ -1,6 +1,0 @@
-.env
-results/
-cache/
-__pycache__/
-*.pyc
-config/last_inputs.json

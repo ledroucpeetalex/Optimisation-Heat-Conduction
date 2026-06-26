@@ -1,48 +1,30 @@
-# Python files
+# Python
 __pycache__/
 *.py[cod]
-*.pyo
-*.pyd
-
-# Jupyter Notebook checkpoints
+*.egg-info/
 .ipynb_checkpoints/
 
-# Environment files
+# Environnement / secrets
 .env
 .venv/
 venv/
-ENV/
 
-# macOS specific files
+# Maillages mis en cache (régénérés par FreeFEM)
+cache/
+
+# Données volumineuses générées localement
+results/**/*.dat
+
+# macOS
 .DS_Store
 
-# Logs
+# LaTeX (build)
+*.aux
 *.log
 *.out
-*.err
-
-# Temporary files
-*.tmp
-*.temp
-*.bak
-*.swp
-*.swo
-
-# Compiled files
-*.o
-*.so
-*.a
-*.mod
-
-# Editor / tooling
-.vscode/
-.idea/
-*.iml
-.claude/
-
-# LaTeX build files
-*.aux
-*.fdb_latexmk
-*.fls
-*.synctex.gz
 *.toc
+*.synctex.gz
+
+# Archives locales
+report.zip
+*.zip

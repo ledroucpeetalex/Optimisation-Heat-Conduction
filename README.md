@@ -1,49 +1,174 @@
-# Optimisation – Heat Conduction (HEAT-COND)
+# Optimisation: Heat Conduction (HEAT-COND)
 
-Plateforme d'optimisation automatique pour un problème de conduction thermique 2D stationnaire (benchmark **HEAT-COND**), couplant un solveur éléments finis **FreeFEM++** à un pilote d'optimisation **Python**.
+Automatic design optimization platform for a 2D steady heat conduction problem (the
+**HEAT-COND** benchmark). It couples a **FreeFEM++** finite element solver ($P_1$) with a
+**Python** optimization driver.
 
-> Projet de cours — *Optimization and Numerical Analysis* (MATH6304P-260-M01), SJTU – SPEIT, Spring 2026.
-> **Auteurs : Laurent ZHU, Alexandre LE DROUCPEET** — Enseignant : Prof. Helin Gong, TA : Zhipu Cui.
+> Course project, *Optimization and Numerical Analysis* (MATH6304P-260-M01), SJTU SPEIT, Spring 2026.
+> **Authors: Laurent ZHU, Alexandre LE DROUCPEET.** Instructor: Prof. Helin Gong. TA: Zhipu Cui.
 
-## Le problème
+## Two-part approach
 
-On résout $-\nabla\cdot(k\,\nabla T)=0$ sur un domaine en peigne (tronc + 5 paires d'ailettes), avec $T=1$ à la base (Dirichlet) et une condition de Robin (nombre de Biot) sur le reste de la frontière. L'objectif est de **maximiser la température moyenne $J$ sur la frontière des ailettes** par rapport au vecteur de design $(k_1,\dots,k_5,\mathrm{Bi})$, sous contraintes de bornes.
+The report (`report/main.pdf`) and the code follow the same progression.
 
-**Résultat central** : la fonctionnelle est lisse et unimodale, avec un optimum au coin du domaine admissible $x^\star=(1,1,1,1,1,\,0{,}01)$, soit $J^\star\approx0{,}730$ (maillage 50), une amélioration d'environ 850 % par rapport au design uniforme initial. Sur ce paysage, **Nelder-Mead** est la méthode la plus efficace (115 évaluations), Differential Evolution sert de vérification d'optimalité globale, et l'hybride **Adam → L-BFGS** illustre la valeur du préconditionnement adaptatif sur un problème mal conditionné. Une extension (pénalisation du coût matériau) trace le front de Pareto performance/coût : −32 % de matériau pour seulement −0,8 % de performance.
+**Part I, initial problem (simple objective J).** We solve
+$-\nabla\cdot(k\,\nabla T)=0$ on a comb shaped domain (a spine plus five pairs of fins), with
+$T=1$ on the base (Dirichlet) and a Robin condition (Biot number) on the rest of the boundary.
+We **maximize the mean temperature J on the fin boundary** over $(k_1,\dots,k_5,\mathrm{Bi})$.
+The objective is smooth and unimodal, with a boundary optimum at $x^\star=(1,1,1,1,1,0.01)$ and
+$J^\star\approx0.730$. On this landscape Nelder-Mead is the most efficient method.
 
-## Contenu du dépôt
+**Part II, parametric problem (complex objective).** Each fin now carries a **discrete material**
+(conductivity, **price**, density) and a **continuous geometry** (thickness, length). We maximize a
+multi-criteria objective
+$F = Q - \lambda_{\text{cost}}\,\text{Cost} - \lambda_{\text{mass}}\,\text{Mass}$
+(16 variables, mixed integer and continuous). We apply the **same three methods as in Part I**
+(Nelder-Mead, Differential Evolution, Adam then L-BFGS). They land within about 1% of one another,
+the Adam then L-BFGS hybrid being marginally best while Differential Evolution confirms the optimum.
+We then characterize the objective evolution (per evaluation and per CPU second) and the
+performance/cost Pareto front.
+
+## Repository layout
 
 ```
 .
-├── CourseProjectIntroduction(English).pdf   # sujet du projet
-├── heat_opti_final/                         # plateforme (code + études + rapport)
-│   ├── scripts/            # mesh.edp, solver.edp (FreeFEM++)
-│   ├── src/                # interface FreeFEM, optimiseurs, visualisation…
-│   ├── app.py              # interface graphique Tkinter
-│   ├── main.py             # pipeline complet en ligne de commande
-│   ├── comparison_methods.ipynb   # les 7 études comparatives
-│   ├── standalone_compare/ # solveur P1 NumPy (vérification, sans FreeFEM)
-│   ├── results_compare/    # figures + données des études (sorties du notebook)
-│   ├── final_report.md     # rapport final (source Markdown)
-│   └── report_overleaf/    # rapport final LaTeX : main.tex + figures + main.pdf
-├── archive/                # anciens rapports intermédiaires (historique)
-└── README.md
+├── freefem/                 # FreeFEM++ solvers (.edp)
+│   ├── mesh.edp             # comb mesh, fixed geometry          (Part I)
+│   ├── solver.edp           # P1 solver, objective J             (Part I)
+│   ├── mesh_param.edp       # mesh parameterized by (t_i, l_i)   (Part II)
+│   └── solver_param.edp     # P1 solver, dissipated heat Q (+ J) (Part II)
+├── heatcond/                # Python package (core platform)
+│   ├── config.py            # paths and lazy FreeFEM access
+│   ├── freefem.py           # subprocess interface: simple and parametric solvers
+│   ├── reference_solver.py        # pure NumPy P1 solver (simple model, validation)
+│   ├── reference_solver_param.py  # pure NumPy P1 solver (parametric model, no FreeFEM)
+│   ├── materials.py         # material catalogue, design vector, cost and mass
+│   ├── objective.py         # SimpleObjective (J) and ParametricObjective (F), with history
+│   ├── optimizers/
+│   │   ├── algorithms.py    # generic optimizer toolbox: NM, DE, L-BFGS-B (scipy), Adam, Bayesian (skopt)
+│   │   ├── simple.py        # method drivers wired to the FreeFEM simple model (Part I)
+│   │   └── parametric.py    # method drivers + multi-fidelity, parametric model (Part II)
+│   ├── sensitivity.py       # sensitivity studies (start point, mesh, parameter sweep)
+│   ├── meta_optimization.py # grid search of DE hyperparameters
+│   ├── visualization.py     # plots: mesh, T field, convergence
+│   └── utils.py
+├── apps/                    # graphical interfaces (Tkinter)
+│   ├── gui_simple.py        # Part I
+│   └── gui_param.py         # Part II (method selector: NM, DE, Adam then L-BFGS, multi-fidelity)
+├── scripts/                 # command line entry points
+│   ├── run_simple.py        # Part I pipeline (three methods + figures)
+│   ├── run_param.py         # Part II pipeline (DE then refinement)
+│   ├── sensitivity_study.py # sensitivity studies
+│   ├── build_part1_notebook.py  # (re)generate the Part I notebook
+│   ├── build_part2_notebook.py  # (re)generate the Part II notebook
+│   ├── reproduce_part1_no_freefem.py  # Part I optimizer comparison without FreeFEM
+│   ├── plot_objective_evolution.py    # objective evolution figure (Part II)
+│   └── cli_eval_simple.py   # evaluate J for one (k1..k5, Bi)
+├── notebooks/               # reproducible studies (scipy + NumPy reference solver, no FreeFEM)
+│   ├── part1_simple_objective.ipynb
+│   └── part2_material_geometry.ipynb
+├── results/                 # generated figures and data
+│   ├── part1/               # Part I figures (etude*, geometry_mesh)
+│   └── part2/               # Part II figures (part2_*) and methods_param.json
+├── config/opt_config.json   # bounds and optimizer settings (Part I)
+├── report/                  # final report (LaTeX and PDF)
+└── archive/                 # intermediate reports (history)
 ```
 
-**Le rapport final à rendre est [`heat_opti_final/report_overleaf/main.pdf`](heat_opti_final/report_overleaf/main.pdf)** (source : `main.tex`, compilable telle quelle sur Overleaf avec le dossier `figures/`).
+**Deliverable: [`report/main.pdf`](report/main.pdf)** (source `report/main.tex`, compiles on Overleaf
+with the `figures/` folder).
 
-## Démarrage rapide
+## Running the application
+
+The graphical apps use the real FreeFEM++ solver, so FreeFEM must be installed.
 
 ```bash
-cd heat_opti_final
-cp .env.example .env        # renseigner FREEFEM_PATH (chemin vers FreeFem++)
+# 1. Python dependencies (Python >= 3.10; tkinter ships with Python)
 pip install -r requirements.txt
-python app.py               # interface graphique (recommandé)
+
+# 2. (optional) make `import heatcond` work from anywhere
+pip install -e .
+
+# 3. FreeFEM++ (>= 4.13): install it from https://freefem.org, then point the project to it
+cp .env.example .env
+#    open .env and set FREEFEM_PATH to the absolute path of the FreeFem++ binary, e.g.
+#    FREEFEM_PATH="/Applications/FreeFem++.app/Contents/ff-4.15/bin/FreeFem++"
+
+# 4. Launch an app
+python apps/gui_param.py     # Part II: material + geometry (method selector + multi-fidelity)
+python apps/gui_simple.py    # Part I: simple model (k1..k5, Bi)
 ```
 
-Voir [`heat_opti_final/README.md`](heat_opti_final/README.md) pour le détail (modes d'optimisation, choix d'algorithme, sorties, reproduction des études). La comparaison des optimiseurs est reproductible **sans installation de FreeFEM** via `standalone_compare/compare_opt.py` (solveur P1 NumPy validé contre FreeFEM à 6 chiffres significatifs).
+Command-line equivalents (also require FreeFEM and the `.env`):
 
-## Prérequis
+```bash
+python scripts/run_param.py        # Part II pipeline (writes results/part2/best_param.json)
+python scripts/run_simple.py       # Part I pipeline (writes results/part1/...)
+python scripts/cli_eval_simple.py  # evaluate J for one (k1..k5, Bi) typed in
+```
 
-- Python ≥ 3.10 (numpy, scipy, pandas, matplotlib, tqdm, python-dotenv ; tkinter inclus avec Python)
-- FreeFEM++ ≥ 4.13 — https://freefem.org (optionnel pour `standalone_compare/`)
+## Reproducing the report results
+
+The studies and figures of both parts run on the validated pure-NumPy reference solver, so they need
+**no FreeFEM**. Only NumPy, SciPy, pandas and matplotlib are required, plus `scikit-optimize` for the
+Bayesian-optimization study.
+
+```bash
+# 1. Python dependencies, including scikit-optimize (already listed in requirements.txt)
+pip install -r requirements.txt
+
+# 2. Run both notebooks and copy every figure into report/figures/, in one step
+python scripts/refresh_figures.py
+
+# 3. Rebuild the report PDF
+cd report && pdflatex main.tex && pdflatex main.tex
+```
+
+What `scripts/refresh_figures.py` does, step by step:
+
+1. executes the code cells of `notebooks/part1_simple_objective.ipynb` and
+   `notebooks/part2_material_geometry.ipynb` directly (no Jupyter required);
+2. the Part I notebook writes `results/part1/part1_*.png` and `results/part1/summary.json`;
+3. the Part II notebook writes `results/part2/part2_*.png` and `results/part2/methods_param.json`;
+4. it copies all those PNGs into `report/figures/`.
+
+If `scikit-optimize` is not installed, only the Bayesian-optimization figure is skipped (cleanly); all
+other figures are still produced. To run the notebooks interactively instead, open them in Jupyter and
+run all cells.
+
+## How an optimization run flows through the files
+
+Take a Part II run (`python scripts/run_param.py`, or the "Optimisation" tab of
+`apps/gui_param.py`). The control passes through the files as follows.
+
+1. **Entry point** (`scripts/run_param.py` or `apps/gui_param.py`) reads the settings (cost and mass
+   weights, mesh densities, budget) and chooses a method.
+2. It builds a **`ParametricObjective`** (`heatcond/objective.py`) carrying the weights, the mesh size
+   and a **solver function**. The solver is either `heatcond.freefem.run_solver_param` (true FreeFEM)
+   or `heatcond.reference_solver_param.solve_param` (NumPy, no FreeFEM).
+3. It calls an **optimizer** in `heatcond/optimizers/parametric.py` (`run_nelder_mead`,
+   `run_differential_evolution`, `run_adam_then_lbfgs`, or `multifidelity`). These are thin wrappers
+   that delegate to the generic optimizer toolbox `heatcond/optimizers/algorithms.py` (thin wrappers around
+   scipy.optimize and scikit-optimize; Bayesian optimization is `run_bayesian`).
+4. The optimizer repeatedly evaluates the design by calling **`ParametricObjective.F(x)`**, which:
+   a. calls `heatcond/materials.py` to split `x` into materials, thicknesses, lengths and Biot, to map
+      materials to conductivities, and to compute cost and mass;
+   b. calls the chosen solver. With FreeFEM, `heatcond/freefem.py` launches `freefem/mesh_param.edp`
+      then `freefem/solver_param.edp` through a subprocess and parses `Objective_Q=` and `Objective_J=`
+      from stdout. With NumPy, `heatcond/reference_solver_param.py` builds the mesh and solves the
+      $P_1$ system in memory. Either way it returns `(Q, J)`;
+   c. forms `F = Q - lambda_cost*cost - lambda_mass*mass` and records it in the history and the
+      best-so-far curve.
+5. The optimizer returns the best design. The entry point writes results (for example
+   `results/part2/best_param.json`) and the apps render the mesh and temperature field through
+   `heatcond/visualization.py`.
+
+The Part I path is the same shape: `scripts/run_simple.py` or `apps/gui_simple.py` drive
+`heatcond/optimizers/simple.py`, which evaluates designs through `heatcond/freefem.py`
+(`freefem/mesh.edp` and `freefem/solver.edp`) and returns `J`. The Part I notebook instead uses
+`SimpleObjective` with the NumPy reference solver so it needs no FreeFEM.
+
+## Requirements
+
+- Python 3.10 or later (numpy, scipy, pandas, matplotlib, tqdm, python-dotenv, nbformat; tkinter ships with Python)
+- FreeFEM++ 4.13 or later (https://freefem.org) for the apps and pipelines. Not needed to run the notebooks or to recompile the report.

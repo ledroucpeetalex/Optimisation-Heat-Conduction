@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "heatcond"
+version = "1.0.0"
+description = "Plateforme d'optimisation de conduction thermique 2D (HEAT-COND) — FreeFEM++ + Python"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    { name = "Laurent Zhu" },
+    { name = "Alexandre Le Droucpeet" },
+]
+dependencies = [
+    "numpy>=1.22",
+    "scipy>=1.10",
+    "pandas>=1.5",
+    "matplotlib>=3.5",
+    "tqdm>=4.60",
+    "python-dotenv>=1.0",
+    "nbformat>=5.0",
+]
+
+[tool.setuptools]
+packages = ["heatcond", "heatcond.optimizers"]

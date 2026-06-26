@@ -1,0 +1,103 @@
+// =====================================================
+// mesh_param.edp  (modèle paramétrique : géométrie variable)
+// Génère le maillage du peigne HEAT-COND avec des AILETTES
+// DE TAILLE VARIABLE : chaque ailette i a sa propre épaisseur
+// t_i et sa propre longueur l_i (extension hors du spine).
+//
+// Construction identique à mesh.edp : frontière exacte décrite
+// comme une polyligne (44 segments / 45 points), buildmesh()
+// => bords droits alignés sur la géométrie, Delaunay à l'intérieur.
+//
+// Arguments :
+//   -meshsize <int>    densité (nb pts / unité de longueur)
+//   -out <string>      chemin du .msh à écrire
+//   -t1..-t5 <real>    épaisseur de chaque ailette  (défaut 0.06)
+//   -l1..-l5 <real>    longueur (extension) de chaque ailette (défaut 0.45)
+//
+// Labels :
+//   1 = base (y=0 sur le spine)        -> Dirichlet T=1
+//   2 = toutes les autres frontières   -> Robin
+// =====================================================
+
+include "getARGV.idp"
+
+int meshsize   = getARGV("-meshsize", 50);
+string outfile = getARGV("-out", "cache/mesh_param.msh");
+
+// ---------- GEOMETRY CONSTANTS ----------
+real ws  = 0.10;                // spine width
+real xg  = (1.0 - ws) / 2.0;    // 0.45
+real xd  = xg + ws;             // 0.55
+real[int] fy = [0.16, 0.32, 0.48, 0.64, 0.80];   // centres des ailettes
+
+// Épaisseurs et longueurs par ailette (arguments)
+real[int] tf(5), lf(5);
+tf[0] = getARGV("-t1", 0.06); tf[1] = getARGV("-t2", 0.06);
+tf[2] = getARGV("-t3", 0.06); tf[3] = getARGV("-t4", 0.06);
+tf[4] = getARGV("-t5", 0.06);
+lf[0] = getARGV("-l1", 0.45); lf[1] = getARGV("-l2", 0.45);
+lf[2] = getARGV("-l3", 0.45); lf[3] = getARGV("-l4", 0.45);
+lf[4] = getARGV("-l5", 0.45);
+
+// ---------- BUILD CCW BOUNDARY POINT LIST ----------
+// 44 segments, 45 points (le dernier point boucle sur le 1er).
+int Npts = 45;
+real[int] bx(Npts), by(Npts);
+int[int]  lbl(Npts - 1);
+
+bx[0] = xg;   by[0] = 0;
+int k = 1;
+
+// 1) Base (y=0) : -> (xd, 0)   [LABEL 1]
+bx[k] = xd;   by[k] = 0;            lbl[k-1] = 1;  k++;
+
+// 2) Côté droit, ailettes 0..4 ; pointe à xd + l_i
+for (int i = 0; i < 5; i++) {
+    real xtip = xd + lf[i];
+    bx[k] = xd;   by[k] = fy[i] - tf[i]/2;  lbl[k-1] = 2;  k++;
+    bx[k] = xtip; by[k] = fy[i] - tf[i]/2;  lbl[k-1] = 2;  k++;
+    bx[k] = xtip; by[k] = fy[i] + tf[i]/2;  lbl[k-1] = 2;  k++;
+    bx[k] = xd;   by[k] = fy[i] + tf[i]/2;  lbl[k-1] = 2;  k++;
+}
+
+// 3) Montée du spine après l'ailette 4 -> (xd, 1)
+bx[k] = xd;  by[k] = 1.0;           lbl[k-1] = 2;  k++;
+
+// 4) Sommet du spine -> (xg, 1)
+bx[k] = xg;  by[k] = 1.0;           lbl[k-1] = 2;  k++;
+
+// 5) Côté gauche, ailettes 4..0 ; pointe à xg - l_i
+for (int i = 4; i >= 0; i--) {
+    real xtip = xg - lf[i];
+    bx[k] = xg;   by[k] = fy[i] + tf[i]/2; lbl[k-1] = 2;  k++;
+    bx[k] = xtip; by[k] = fy[i] + tf[i]/2; lbl[k-1] = 2;  k++;
+    bx[k] = xtip; by[k] = fy[i] - tf[i]/2; lbl[k-1] = 2;  k++;
+    bx[k] = xg;   by[k] = fy[i] - tf[i]/2; lbl[k-1] = 2;  k++;
+}
+
+// 6) Fermeture : retour au point de départ (xg, 0)
+bx[k] = bx[0]; by[k] = by[0];       lbl[k-1] = 2;  k++;
+
+// ---------- NUMBER OF SUBDIVISIONS PER SEGMENT ----------
+int nseg = k - 1;
+int[int] nn(nseg);
+for (int i = 0; i < nseg; i++) {
+    real ddx = bx[i+1] - bx[i];
+    real ddy = by[i+1] - by[i];
+    real Lseg = sqrt(ddx*ddx + ddy*ddy);
+    nn[i] = max(2, int(Lseg * meshsize));
+}
+
+// ---------- INDEXED BORDER + BUILDMESH ----------
+border bd(t = 0, 1; i) {
+    x = bx[i] + t * (bx[i+1] - bx[i]);
+    y = by[i] + t * (by[i+1] - by[i]);
+    label = lbl[i];
+}
+
+mesh Th = buildmesh(bd(nn));
+savemesh(Th, outfile);
+
+cout << "MESH_SAVED=" << outfile << endl;
+cout << "MESH_NV="    << Th.nv  << endl;
+cout << "MESH_NT="    << Th.nt  << endl;

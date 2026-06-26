@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c ' *)",
+      "Bash(.venv/bin/python -c ' *)",
+      "Bash(.venv/bin/pip install *)",
+      "Bash(git checkout *)",
+      "Bash(cat heat_opti_final/.env)",
+      "Bash(cat .env)",
+      "Bash(grep -h FREEFEM .env heat_opti_final/.env)",
+      "Bash(\"/Applications/FreeFem++.app/Contents/ff-4.15/bin/FreeFem++\" -nw heat_opti_final/scripts/mesh.edp -meshsize 20 -out /tmp/test_mesh.msh)",
+      "Bash(.venv/bin/python -m pip install nbformat nbconvert ipykernel -q)",
+      "Bash(.venv/bin/python -c \"import nbformat,nbconvert,ipykernel; print\\('nb OK'\\)\")",
+      "Bash(.venv/bin/python -m pip install nbformat nbconvert ipykernel)",
+      "Bash(pgrep -f nbconvert)",
+      "Bash(tail -6 \"/private/tmp/claude-501/-Users-zhulaurent-Documents-Claude-Projects-Project--Heat-Conduction----ONA-Optimisation-Heat-Conduction/b36d70f2-3f97-4b52-b74b-52d1f78fd7cc/tasks/bmohmfngz.output\")",
+      "Bash(ls -1 results_compare/*.png)",
+      "Bash(python3 -c \"import json;d=json.load\\(open\\('results_compare/methods_enriched.json'\\)\\);print\\('clés:',list\\(d.keys\\(\\)\\)\\)\")"
+    ]
+  }
+}

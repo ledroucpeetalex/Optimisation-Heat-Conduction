@@ -1,0 +1,99 @@
+// =====================================================
+// solver_param.edp  (modèle paramétrique : géométrie variable)
+// Résout la conduction stationnaire HEAT-COND sur un maillage
+// précalculé par mesh_param.edp. Chaque ailette a sa propre
+// conductivité k_i (fixée par le matériau choisi côté Python) et
+// sa propre épaisseur t_i (pour identifier sa région).
+//
+// La LONGUEUR des ailettes n'intervient pas ici : elle est déjà
+// encodée dans la géométrie du maillage. Seule l'épaisseur sert
+// au test d'appartenance |y - fy_i| <= t_i/2.
+//
+// Labels : 1 = base (Dirichlet T=1), 2 = reste (Robin).
+//
+// Arguments :
+//   -meshfile <string>  chemin du .msh
+//   -k1..-k5 <real>     conductivité de chaque ailette
+//   -t1..-t5 <real>     épaisseur de chaque ailette
+//   -Bi <real>          nombre de Biot
+//   -doplot <int>       1 = affiche T
+//   -Tout <string>      si non vide, écrit x y T par sommet
+//
+// Sortie standard : "Objective_J=<valeur>"
+// =====================================================
+
+include "getARGV.idp"
+
+string meshfile = getARGV("-meshfile", "cache/mesh_param.msh");
+real k1 = getARGV("-k1", 1.0), k2 = getARGV("-k2", 1.0);
+real k3 = getARGV("-k3", 1.0), k4 = getARGV("-k4", 1.0);
+real k5 = getARGV("-k5", 1.0);
+real t1 = getARGV("-t1", 0.06), t2 = getARGV("-t2", 0.06);
+real t3 = getARGV("-t3", 0.06), t4 = getARGV("-t4", 0.06);
+real t5 = getARGV("-t5", 0.06);
+real Bi = getARGV("-Bi", 0.5);
+int  doPlot = getARGV("-doplot", 0);
+string Tout = getARGV("-Tout", "");
+
+// ---------- GEOMETRY CONSTANTS ----------
+real ws  = 0.10;
+real xg  = (1.0 - ws) / 2.0;
+real xd  = xg + ws;
+real fy1 = 0.16, fy2 = 0.32, fy3 = 0.48, fy4 = 0.64, fy5 = 0.80;
+
+func int inSpine(real xx, real yy) {
+    return (xx >= xg && xx <= xd);
+}
+// Une ailette i : hors du spine et dans sa bande verticale d'épaisseur t_i.
+func int inFin(real xx, real yy, real yc, real tt) {
+    return (abs(yy - yc) <= tt / 2.0 && (xx <= xg || xx >= xd));
+}
+
+// ---------- LOAD MESH ----------
+mesh Th = readmesh(meshfile);
+fespace Vh(Th, P1);
+Vh T, v;
+
+// ---------- THERMAL CONDUCTIVITY ----------
+Vh kappa = inSpine(x, y) ? 1.0 : (
+           inFin(x, y, fy1, t1) ? k1 : (
+           inFin(x, y, fy2, t2) ? k2 : (
+           inFin(x, y, fy3, t3) ? k3 : (
+           inFin(x, y, fy4, t4) ? k4 : (
+           inFin(x, y, fy5, t5) ? k5 : 1.0 )))));
+
+// ---------- PDE ----------
+problem heat(T, v) =
+      int2d(Th)( kappa * (dx(T)*dx(v) + dy(T)*dy(v)) )
+    + int1d(Th, 2)( Bi * T * v )
+    + on(1, T = 1);
+
+heat;
+
+// ---------- OBJECTIVES ----------
+// Q : chaleur totale dissipée par les ailettes (flux convectif Robin) = ∫ Bi·T dΓ.
+//     Objectif de performance du modèle paramétrique : croît avec la surface ET la
+//     conductivité, et admet un Biot intérieur optimal -> vrai compromis vs coût.
+// J : température moyenne au bord (objectif du modèle original), gardé pour info.
+real L = int1d(Th, 2)(1.0);
+real J = int1d(Th, 2)(T) / L;
+real Q = int1d(Th, 2)(Bi * T);
+
+cout << "Objective_Q=" << Q << endl;
+cout << "Objective_J=" << J << endl;
+
+// ---------- OPTIONAL T FIELD EXPORT ----------
+if (Tout != "") {
+    Vh xc = x;
+    Vh yc = y;
+    ofstream fout(Tout);
+    fout << "# x y T" << endl;
+    for (int i = 0; i < Th.nv; i++) {
+        fout << xc[][i] << " " << yc[][i] << " " << T[][i] << endl;
+    }
+    cout << "T_FIELD_SAVED=" << Tout << endl;
+}
+
+if (doPlot == 1) {
+    plot(T, fill = true, value = true, wait = true, cmm = "T field");
+}
