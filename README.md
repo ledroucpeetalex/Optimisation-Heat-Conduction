@@ -86,10 +86,10 @@ The graphical apps use the real FreeFEM++ solver, so FreeFEM must be installed.
 # 1. Python dependencies (Python >= 3.10; tkinter ships with Python)
 pip install -r requirements.txt
 
-# 2. FreeFEM++ (>= 4.13): install it from https://freefem.org, then point the project to it
-cp .env.example .env
-#    open .env and set FREEFEM_PATH to the absolute path of the FreeFem++ binary, e.g.
-#    FREEFEM_PATH="/Applications/FreeFem++.app/Contents/ff-4.15/bin/FreeFem++"
+# 2. FreeFEM++ (>= 4.13): install it from https://freefem.org, then tell the project where it is.
+#    Create a file named .env in the project root with a single line giving the absolute
+#    path to the FreeFem++ binary. On macOS, for example:
+echo 'FREEFEM_PATH="/Applications/FreeFem++.app/Contents/ff-4.15/bin/FreeFem++"' > .env
 
 # 3. Launch an app
 python apps/gui_param.py     # Part II: material + geometry (method selector + multi-fidelity)

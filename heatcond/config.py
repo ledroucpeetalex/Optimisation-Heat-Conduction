@@ -47,8 +47,8 @@ def get_freefem_exec() -> str:
     exe = os.getenv("FREEFEM_PATH")
     if not exe:
         raise RuntimeError(
-            "FREEFEM_PATH n'est pas défini. Copiez .env.example vers .env et "
-            "renseignez le chemin absolu vers FreeFem++ (voir README)."
+            "FREEFEM_PATH is not set. Create a .env file in the project root "
+            "containing FREEFEM_PATH=\"/absolute/path/to/FreeFem++\" (see README)."
         )
     return exe
 
