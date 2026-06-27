@@ -33,25 +33,19 @@ history: list = []
 iteration_counter: int = 0
 best_J: float = -np.inf
 best_x: Optional[np.ndarray] = None
-best_obj: float = -np.inf
-
-# Poids du coût matériau pour l'objectif scalarisé F = J - COST_LAMBDA * mean(k_i).
-# 0.0 = objectif J pur (comportement par défaut). Voir l'extension front de Pareto.
-COST_LAMBDA: float = 0.0
 
 
 def reset_optimization() -> None:
-    global history, iteration_counter, best_J, best_x, best_obj
+    global history, iteration_counter, best_J, best_x
     history = []
     iteration_counter = 0
     best_J = -np.inf
     best_x = None
-    best_obj = -np.inf
 
 
 def evaluate(x, mesh_size: int = 50) -> float:
-    """Évalue J(x) via FreeFEM et alimente l'historique. Renvoie -obj (à minimiser)."""
-    global iteration_counter, best_J, best_x, history, best_obj
+    """Évalue J(x) via FreeFEM et alimente l'historique. Renvoie -J (à minimiser)."""
+    global iteration_counter, best_J, best_x, history
     start = time.time()
     J = run_solver(x, mesh_size=mesh_size, doplot=0)
     elapsed = time.time() - start
@@ -63,9 +57,7 @@ def evaluate(x, mesh_size: int = 50) -> float:
         "J": J, "time": elapsed, "mesh_size": mesh_size,
     })
 
-    obj = J - COST_LAMBDA * float(np.mean(np.asarray(x[:5], dtype=float)))
-    if obj > best_obj:
-        best_obj = obj
+    if J > best_J:
         best_J = J
         best_x = np.array(x, dtype=float).copy()
         save_best_design(best_x, best_J)
@@ -73,7 +65,7 @@ def evaluate(x, mesh_size: int = 50) -> float:
     if VERBOSE:
         print(f"  Éval {iteration_counter:3d} | J = {J:.8f} | temps = {elapsed:.2f}s")
     iteration_counter += 1
-    return -obj
+    return -J
 
 
 def _objective(mesh_size: int):

@@ -4,7 +4,7 @@ Automatic design optimization platform for a 2D steady heat conduction problem (
 **HEAT-COND** benchmark). It couples a **FreeFEM++** finite element solver ($P_1$) with a
 **Python** optimization driver.
 
-> Course project, *Optimization and Numerical Analysis* (MATH6304P-260-M01), SJTU SPEIT, Spring 2026.
+> Course project, _Optimization and Numerical Analysis_ (MATH6304P-260-M01), SJTU SPEIT, Spring 2026.
 > **Authors: Laurent ZHU, Alexandre LE DROUCPEET.** Instructor: Prof. Helin Gong. TA: Zhipu Cui.
 
 ## Two-part approach
@@ -86,15 +86,12 @@ The graphical apps use the real FreeFEM++ solver, so FreeFEM must be installed.
 # 1. Python dependencies (Python >= 3.10; tkinter ships with Python)
 pip install -r requirements.txt
 
-# 2. (optional) make `import heatcond` work from anywhere
-pip install -e .
-
-# 3. FreeFEM++ (>= 4.13): install it from https://freefem.org, then point the project to it
+# 2. FreeFEM++ (>= 4.13): install it from https://freefem.org, then point the project to it
 cp .env.example .env
 #    open .env and set FREEFEM_PATH to the absolute path of the FreeFem++ binary, e.g.
 #    FREEFEM_PATH="/Applications/FreeFem++.app/Contents/ff-4.15/bin/FreeFem++"
 
-# 4. Launch an app
+# 3. Launch an app
 python apps/gui_param.py     # Part II: material + geometry (method selector + multi-fidelity)
 python apps/gui_simple.py    # Part I: simple model (k1..k5, Bi)
 ```
@@ -119,9 +116,6 @@ pip install -r requirements.txt
 
 # 2. Run both notebooks and copy every figure into report/figures/, in one step
 python scripts/refresh_figures.py
-
-# 3. Rebuild the report PDF
-cd report && pdflatex main.tex && pdflatex main.tex
 ```
 
 What `scripts/refresh_figures.py` does, step by step:
@@ -131,42 +125,6 @@ What `scripts/refresh_figures.py` does, step by step:
 2. the Part I notebook writes `results/part1/part1_*.png` and `results/part1/summary.json`;
 3. the Part II notebook writes `results/part2/part2_*.png` and `results/part2/methods_param.json`;
 4. it copies all those PNGs into `report/figures/`.
-
-If `scikit-optimize` is not installed, only the Bayesian-optimization figure is skipped (cleanly); all
-other figures are still produced. To run the notebooks interactively instead, open them in Jupyter and
-run all cells.
-
-## How an optimization run flows through the files
-
-Take a Part II run (`python scripts/run_param.py`, or the "Optimisation" tab of
-`apps/gui_param.py`). The control passes through the files as follows.
-
-1. **Entry point** (`scripts/run_param.py` or `apps/gui_param.py`) reads the settings (cost and mass
-   weights, mesh densities, budget) and chooses a method.
-2. It builds a **`ParametricObjective`** (`heatcond/objective.py`) carrying the weights, the mesh size
-   and a **solver function**. The solver is either `heatcond.freefem.run_solver_param` (true FreeFEM)
-   or `heatcond.reference_solver_param.solve_param` (NumPy, no FreeFEM).
-3. It calls an **optimizer** in `heatcond/optimizers/parametric.py` (`run_nelder_mead`,
-   `run_differential_evolution`, `run_adam_then_lbfgs`, or `multifidelity`). These are thin wrappers
-   that delegate to the generic optimizer toolbox `heatcond/optimizers/algorithms.py` (thin wrappers around
-   scipy.optimize and scikit-optimize; Bayesian optimization is `run_bayesian`).
-4. The optimizer repeatedly evaluates the design by calling **`ParametricObjective.F(x)`**, which:
-   a. calls `heatcond/materials.py` to split `x` into materials, thicknesses, lengths and Biot, to map
-      materials to conductivities, and to compute cost and mass;
-   b. calls the chosen solver. With FreeFEM, `heatcond/freefem.py` launches `freefem/mesh_param.edp`
-      then `freefem/solver_param.edp` through a subprocess and parses `Objective_Q=` and `Objective_J=`
-      from stdout. With NumPy, `heatcond/reference_solver_param.py` builds the mesh and solves the
-      $P_1$ system in memory. Either way it returns `(Q, J)`;
-   c. forms `F = Q - lambda_cost*cost - lambda_mass*mass` and records it in the history and the
-      best-so-far curve.
-5. The optimizer returns the best design. The entry point writes results (for example
-   `results/part2/best_param.json`) and the apps render the mesh and temperature field through
-   `heatcond/visualization.py`.
-
-The Part I path is the same shape: `scripts/run_simple.py` or `apps/gui_simple.py` drive
-`heatcond/optimizers/simple.py`, which evaluates designs through `heatcond/freefem.py`
-(`freefem/mesh.edp` and `freefem/solver.edp`) and returns `J`. The Part I notebook instead uses
-`SimpleObjective` with the NumPy reference solver so it needs no FreeFEM.
 
 ## Requirements
 

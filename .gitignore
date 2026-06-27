@@ -28,3 +28,12 @@ results/**/*.dat
 # Archives locales
 report.zip
 *.zip
+
+# Claude local settings
+.claude/
+
+# Runtime artifacts (GUI session state + optimization outputs)
+apps/config/last_inputs.json
+results/**/best_design.txt
+results/**/optimization_history.csv
+results/**/convergence.png

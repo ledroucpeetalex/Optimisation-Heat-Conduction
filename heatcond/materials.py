@@ -25,10 +25,10 @@ import numpy as np
 # Valeurs illustratives, à recalibrer si besoin.
 # --------------------------------------------------------------------------
 MATERIALS = [
-    {"name": "Cuivre",    "k": 1.00, "price": 9.0, "density": 9.0},
-    {"name": "Aluminium", "k": 0.60, "price": 3.0, "density": 2.7},
-    {"name": "Acier",     "k": 0.25, "price": 1.5, "density": 7.8},
-    {"name": "Polymère",  "k": 0.05, "price": 0.3, "density": 1.2},
+    {"name": "Copper",    "k": 1.00, "price": 9.0, "density": 9.0},
+    {"name": "Aluminum",  "k": 0.60, "price": 3.0, "density": 2.7},
+    {"name": "Steel",     "k": 0.25, "price": 1.5, "density": 7.8},
+    {"name": "Polymer",   "k": 0.05, "price": 0.3, "density": 1.2},
 ]
 N_MAT = len(MATERIALS)
 N_FINS = 5
@@ -91,13 +91,13 @@ def describe(x):
     """Représentation lisible d'un design (pour logs / rapport)."""
     m, t, l, Bi = unpack(x)
     cost, mass = cost_and_mass(m, t, l)
-    lines = ["Design paramétrique :"]
+    lines = ["Parametric design:"]
     for i in range(N_FINS):
         mat = MATERIALS[m[i]]
         lines.append(
-            f"  Ailette {i + 1}: {mat['name']:10s} (k={mat['k']:.2f})  "
+            f"  Fin {i + 1}: {mat['name']:10s} (k={mat['k']:.2f})  "
             f"t={t[i]:.3f}  l={l[i]:.3f}"
         )
     lines.append(f"  Bi = {Bi:.4f}")
-    lines.append(f"  Coût = {cost:.4f}   Masse = {mass:.4f}")
+    lines.append(f"  Cost = {cost:.4f}   Mass = {mass:.4f}")
     return "\n".join(lines)

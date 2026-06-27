@@ -1,12 +1,11 @@
-# HEAT-COND — plateforme d'optimisation (FreeFEM++ + Python) — dépendances Python
+# HEAT-COND optimization platform (FreeFEM++ + Python) - Python dependencies
 #
-# Installation :
+# Installation:
 #     pip install -r requirements.txt
-#     pip install -e .            # (optionnel) rend le package `heatcond` importable partout
 #
-# Note : tkinter est livré avec Python sur Windows et macOS.
-# Sur Linux (Ubuntu/Debian) : sudo apt install python3-tk
-# FreeFEM++ doit être installé séparément (https://freefem.org) pour lancer les solveurs.
+# Note: tkinter ships with Python on Windows and macOS.
+# On Linux (Ubuntu/Debian): sudo apt install python3-tk
+# FreeFEM++ must be installed separately (https://freefem.org) to run the solvers.
 
 numpy>=1.22
 scipy>=1.10
