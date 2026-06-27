@@ -26,7 +26,7 @@ import numpy as np
 # --------------------------------------------------------------------------
 MATERIALS = [
     {"name": "Copper",    "k": 1.00, "price": 9.0, "density": 9.0},
-    {"name": "Aluminum",  "k": 0.60, "price": 3.0, "density": 2.7},
+    {"name": "Aluminium", "k": 0.60, "price": 3.0, "density": 2.7},
     {"name": "Steel",     "k": 0.25, "price": 1.5, "density": 7.8},
     {"name": "Polymer",   "k": 0.05, "price": 0.3, "density": 1.2},
 ]

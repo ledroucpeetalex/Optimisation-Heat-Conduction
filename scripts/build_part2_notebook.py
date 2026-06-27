@@ -131,17 +131,21 @@ plt.tight_layout(); plt.savefig(R / "part2_best_diagnostics.png", dpi=140); plt.
 """)
 
 code(r"""
+from matplotlib.patches import Patch
 x = np.array(best["best_x"]); m, t, l, Bi = unpack(x)
-names = [MATERIALS[i]["name"] for i in m]; cols = [MAT_COLORS[i] for i in m]
+cols = [MAT_COLORS[i] for i in m]
 fins = [f"Fin {i+1}" for i in range(5)]
-fig, ax = plt.subplots(1, 2, figsize=(12, 4.5))
+fig, ax = plt.subplots(1, 2, figsize=(12, 4.7))
 ax[0].bar(fins, t, color=cols); ax[0].set_ylabel("thickness $t_i$"); ax[0].set_title("Thickness (colour = material)")
-for i, (xx, nm) in enumerate(zip(t, names)):
-    ax[0].text(i, xx, nm, ha="center", va="bottom", fontsize=8, rotation=90)
 ax[1].bar(fins, l, color=cols); ax[1].set_ylabel("length $\\ell_i$"); ax[1].set_title("Length (colour = material)")
+for a in ax: a.grid(alpha=0.3, axis="y")
+# explicit colour -> material legend (all materials shown)
+handles = [Patch(facecolor=MAT_COLORS[i], label=MATERIALS[i]["name"]) for i in range(len(MATERIALS))]
+fig.legend(handles=handles, loc="upper center", ncol=len(MATERIALS),
+           frameon=True, bbox_to_anchor=(0.5, 0.99), fontsize=9)
 plt.suptitle(f"Optimal design ({best_name}): Bi={Bi:.3f}, Q={best['best_Q']:.3f} "
-             f"(J={best['best_J']:.3f}), cost={best['best_cost']:.3f}, mass={best['best_mass']:.3f}")
-plt.tight_layout(); plt.savefig(R / "part2_optimal_design.png", dpi=140); plt.show()
+             f"(J={best['best_J']:.3f}), cost={best['best_cost']:.3f}, mass={best['best_mass']:.3f}", y=0.90)
+fig.tight_layout(rect=[0, 0, 1, 0.88]); plt.savefig(R / "part2_optimal_design.png", dpi=140); plt.show()
 print(describe(x))
 """)
 

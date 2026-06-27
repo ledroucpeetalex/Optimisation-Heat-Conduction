@@ -22,11 +22,11 @@ $J^\star\approx0.730$. On this landscape Nelder-Mead is the most efficient metho
 (conductivity, **price**, density) and a **continuous geometry** (thickness, length). We maximize a
 multi-criteria objective
 $F = Q - \lambda_{\text{cost}}\,\text{Cost} - \lambda_{\text{mass}}\,\text{Mass}$
-(16 variables, mixed integer and continuous). We apply the **same three methods as in Part I**
-(Nelder-Mead, Differential Evolution, Adam then L-BFGS). They land within about 1% of one another,
-the Adam then L-BFGS hybrid being marginally best while Differential Evolution confirms the optimum.
-We then characterize the objective evolution (per evaluation and per CPU second) and the
-performance/cost Pareto front.
+(16 variables, mixed integer and continuous). We apply the **same methods as in Part I**
+(Nelder-Mead, Differential Evolution, Adam then L-BFGS) plus **Bayesian optimization**. They land
+within a few percent of one another; **Bayesian optimization gives the best objective with by far the
+fewest evaluations**, so it is retained as the default method. We then characterize the objective
+evolution (per evaluation and per CPU second) and the performance/cost Pareto front.
 
 ## Repository layout
 
@@ -68,11 +68,10 @@ performance/cost Pareto front.
 │   ├── part1_simple_objective.ipynb
 │   └── part2_material_geometry.ipynb
 ├── results/                 # generated figures and data
-│   ├── part1/               # Part I figures (etude*, geometry_mesh)
+│   ├── part1/               # Part I figures (part1_*, geometry_mesh) and summary.json
 │   └── part2/               # Part II figures (part2_*) and methods_param.json
 ├── config/opt_config.json   # bounds and optimizer settings (Part I)
-├── report/                  # final report (LaTeX and PDF)
-└── archive/                 # intermediate reports (history)
+└── report/                  # final report (LaTeX and PDF)
 ```
 
 **Deliverable: [`report/main.pdf`](report/main.pdf)** (source `report/main.tex`, compiles on Overleaf

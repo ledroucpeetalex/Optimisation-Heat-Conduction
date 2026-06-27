@@ -373,9 +373,9 @@ while costing only a few milliseconds per evaluation on the coarse mesh.
 \subsection{Comparison of the Optimization Methods}
 To keep the methodology consistent across the report, we apply to the enriched problem the
 \emph{same three optimizers as in Part~I} (Nelder--Mead (NM), Differential Evolution (DE) and the
-Adam$\rightarrow$L-BFGS hybrid. The five discrete material variables are handled by \emph{continuous
-relaxation with rounding} (the material index is rounded inside the objective), exactly as DE already
-treated them in Part~I) together with \textbf{Bayesian optimization}, so all four methods operate on the
+Adam$\rightarrow$L-BFGS hybrid), together with \textbf{Bayesian optimization}. The five discrete material
+variables are handled by \emph{continuous relaxation with rounding} (the material index is rounded inside
+the objective), exactly as DE already treated them in Part~I, so all four methods operate on the
 same $16$-dimensional continuous box.
 Table~\ref{tab:enr-methods} and Fig.~\ref{fig:enr-conv} report the comparison on the coarse mesh (each method run to convergence).
 
